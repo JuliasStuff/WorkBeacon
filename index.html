@@ -255,6 +255,13 @@
   .focus-slot .task-tags{
     display:flex; flex-wrap:wrap; gap:5px;
   }
+  .focus-slot .focus-notes{
+    background:#fff; border:1px solid var(--line);
+    border-radius:10px; padding:8px 10px;
+    font-size:13px; line-height:1.45; color:var(--ink);
+    white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere;
+    max-height:160px; overflow:auto;
+  }
   .focus-slot .timer-display{
     font-size:32px; font-weight:800;
     font-variant-numeric:tabular-nums;
@@ -322,6 +329,56 @@
     outline-offset:-6px;
     background:linear-gradient(180deg, var(--accent-soft), var(--panel) 60%);
   }
+  .task-row.drop-above{ box-shadow: 0 -3px 0 0 var(--accent-2) inset, 0 -3px 0 0 var(--accent-2); border-top:3px solid var(--accent-2); margin-top:-3px; }
+  .task-row.drop-below{ box-shadow: 0 3px 0 0 var(--accent-2) inset, 0 3px 0 0 var(--accent-2); border-bottom:3px solid var(--accent-2); margin-bottom:-3px; }
+
+  /* Attachments (modal) */
+  .attach-zone{
+    border:2px dashed var(--line); border-radius:10px;
+    padding:14px; text-align:center; color:var(--ink-soft);
+    font-size:13px; background:#fff;
+    transition: background .15s, border-color .15s;
+  }
+  .attach-zone.dragover{
+    border-color:var(--accent); background:var(--accent-soft); color:var(--accent-2);
+  }
+  .attach-zone .pick-link{
+    color:var(--accent-2); text-decoration:underline; cursor:pointer;
+    font-weight:600;
+  }
+  .attach-grid{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(110px, 1fr));
+    gap:8px; margin-top:8px;
+  }
+  .attach-thumb{
+    position:relative; aspect-ratio:1 / 1; border-radius:8px;
+    overflow:hidden; border:1px solid var(--line); background:#f3f3f3;
+    cursor:zoom-in;
+  }
+  .attach-thumb img{
+    width:100%; height:100%; object-fit:cover; display:block;
+  }
+  .attach-thumb .del{
+    position:absolute; top:4px; right:4px;
+    width:22px; height:22px; border-radius:50%;
+    background:rgba(0,0,0,.6); color:#fff; border:0;
+    cursor:pointer; font-size:14px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .attach-thumb .del:hover{ background:rgba(166,52,70,.9); }
+
+  /* Lightbox */
+  .lightbox-bg{
+    position:fixed; inset:0; background:rgba(0,0,0,.85);
+    display:none; align-items:center; justify-content:center;
+    z-index:200; padding:24px; cursor:zoom-out;
+  }
+  .lightbox-bg.open{ display:flex; }
+  .lightbox-bg img{
+    max-width:100%; max-height:100%; object-fit:contain;
+    border-radius:6px; box-shadow:0 8px 40px rgba(0,0,0,.6);
+  }
+  .row-attach-chip{ font-size:12px; }
 
   .task-main{ flex:1 1 auto; min-width:0; cursor:pointer; }
   .task-title-row{
@@ -704,6 +761,13 @@
       <button class="btn ghost" id="task-modal-subtask-add">Add</button>
     </div>
 
+    <label class="field-lbl">Screenshots</label>
+    <div id="task-modal-attach-zone" class="attach-zone" tabindex="0">
+      Paste a screenshot here (Ctrl+V / Cmd+V), drop an image, or <span class="pick-link" id="task-modal-attach-pick">choose a file</span>.
+      <input type="file" id="task-modal-attach-file" accept="image/*" multiple style="display:none;" />
+    </div>
+    <div id="task-modal-attachments" class="attach-grid"></div>
+
     <label class="field-lbl">Recurrence</label>
     <select id="task-modal-recurrence">
       <option value="">One-off — no recurrence</option>
@@ -731,6 +795,10 @@
       <button class="btn" id="task-modal-save">Save</button>
     </div>
   </div>
+</div>
+
+<div class="lightbox-bg" id="lightbox-bg" aria-hidden="true">
+  <img id="lightbox-img" alt="" />
 </div>
 
 <script type="module">
@@ -1371,6 +1439,8 @@ function renderFocusSlot(task, idx){
   })() : "";
   const followChip = followUpChipHtml(task);
   const t = effectiveTime(task);
+  const notes = (task.notes || "").trim();
+  const notesHtml = notes ? `<div class="focus-notes">${escapeHtml(notes)}</div>` : "";
   const subs = task.subtasks || [];
   const prog = progressOf(task);
   const visible = subs.slice(0, 5);
@@ -1394,6 +1464,7 @@ function renderFocusSlot(task, idx){
       </div>
       <div class="task-title" data-act="edit">${escapeHtml(task.title)}</div>
       <div class="task-tags">${tags}${recurChip}${followChip}</div>
+      ${notesHtml}
       ${subsHtml}
       <div class="timer-display" data-role="timer">${fmtTimerBig(t)}</div>
       <div class="slot-actions">
@@ -1492,6 +1563,10 @@ function renderWorking(){
         const af = isFocused(a.id) ? 0 : 1;
         const bf = isFocused(b.id) ? 0 : 1;
         if(af !== bf) return af - bf;
+        // Manual order (set by drag-reorder); default 0
+        const ao = (typeof a.manualOrder === "number") ? a.manualOrder : 0;
+        const bo = (typeof b.manualOrder === "number") ? b.manualOrder : 0;
+        if(ao !== bo) return ao - bo;
         // Then by follow-up date ascending (overdue first); no-date sinks below dated
         const ad = a.followUpDate || null;
         const bd = b.followUpDate || null;
@@ -1532,6 +1607,10 @@ function renderTaskRow(task){
       })()
     : "";
   const followChip = followUpChipHtml(task);
+  const attachCount = (task.attachments || []).length;
+  const attachChip = attachCount > 0
+    ? `<span class="chip row-attach-chip" title="${attachCount} screenshot${attachCount===1?"":"s"}">🖼️ ${attachCount}</span>`
+    : "";
   const ms = effectiveTime(task);
   return `
     <div class="task-row ${focused ? "focused" : ""} kind-${k}" data-task="${task.id}" draggable="true">
@@ -1539,15 +1618,12 @@ function renderTaskRow(task){
       <div class="task-main" data-act="edit" title="Click to edit">
         <div class="task-title-row">
           <span class="title">${escapeHtml(task.title)}</span>
-          ${tagChips}${progressChip}${recurChip}${followChip}
+          ${tagChips}${progressChip}${recurChip}${followChip}${attachChip}
         </div>
         <div class="task-meta">
           <span class="time ${running ? "running" : ""}" data-role="row-time">${fmtDuration(ms)}</span>
           ${running ? `<span style="color:var(--accent-2); font-weight:600;">timer running</span>` : ""}
         </div>
-      </div>
-      <div class="task-actions">
-        <button class="icon" data-act="delete" title="Delete">🗑️</button>
       </div>
     </div>
   `;
@@ -1572,33 +1648,71 @@ document.getElementById("working-groups").addEventListener("click", e=>{
 
 /* ---------- Drag & drop between kind groups ---------- */
 let dragTaskId = null;
-function moveTaskToKind(taskId, kindId){
+function sortedTasksOfKind(kindId){
+  return data.tasks
+    .filter(t => kindOfTask(t) === kindId)
+    .sort((a, b) => {
+      const af = isFocused(a.id) ? 0 : 1;
+      const bf = isFocused(b.id) ? 0 : 1;
+      if(af !== bf) return af - bf;
+      const ao = (typeof a.manualOrder === "number") ? a.manualOrder : 0;
+      const bo = (typeof b.manualOrder === "number") ? b.manualOrder : 0;
+      if(ao !== bo) return ao - bo;
+      const ad = a.followUpDate || null;
+      const bd = b.followUpDate || null;
+      if(ad && !bd) return -1;
+      if(!ad && bd) return 1;
+      if(ad && bd && ad !== bd) return ad < bd ? -1 : 1;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+}
+function reorderTaskInKind(taskId, targetKindId, beforeTaskId){
   const task = getTask(taskId);
   if(!task) return;
   const wasKind = kindOfTask(task);
-  if(wasKind === kindId) return; // already there
-  const newState = data.states.find(s => s.kind === kindId);
-  if(!newState) return;
-  task.stateId = newState.id;
-  if(kindId === "done"){
-    task.completedAt = nowMs();
-    data.focusOrder = data.focusOrder.filter(id => id !== task.id);
-    if(isTaskRunning(task.id)){
-      stopTimer(task.id, { skipRender: true });
+  // If moving across kinds, update stateId first
+  if(wasKind !== targetKindId){
+    const newState = data.states.find(s => s.kind === targetKindId);
+    if(!newState) return;
+    task.stateId = newState.id;
+    if(targetKindId === "done"){
+      task.completedAt = nowMs();
+      data.focusOrder = data.focusOrder.filter(id => id !== task.id);
+      if(isTaskRunning(task.id)){
+        stopTimer(task.id, { skipRender: true, skipSave: true });
+      }
+      if(task.recurrence && wasKind !== "done"){
+        scheduleRecurrenceReset(task);
+      }
+    }else if(wasKind === "done"){
+      task.nextResetAt = null;
+      task.completedAt = null;
     }
-    if(task.recurrence && wasKind !== "done"){
-      scheduleRecurrenceReset(task);
-    }
-  }else if(wasKind === "done"){
-    task.nextResetAt = null;
-    task.completedAt = null;
   }
+  // Build current sorted list of the target kind WITHOUT the moving task,
+  // then splice in at the requested position and renumber.
+  const list = sortedTasksOfKind(targetKindId).filter(t => t.id !== taskId);
+  let idx = list.length;
+  if(beforeTaskId){
+    const found = list.findIndex(t => t.id === beforeTaskId);
+    if(found >= 0) idx = found;
+  }
+  list.splice(idx, 0, task);
+  list.forEach((t, i) => { t.manualOrder = i; });
   save();
   renderAll();
+}
+function moveTaskToKind(taskId, kindId){
+  // Append at end of target kind.
+  reorderTaskInKind(taskId, kindId, null);
 }
 (function wireWorkingDnD(){
   const wg = document.getElementById("working-groups");
   if(!wg) return;
+  function clearRowMarks(){
+    wg.querySelectorAll(".task-row.drop-above, .task-row.drop-below")
+      .forEach(r => r.classList.remove("drop-above", "drop-below"));
+  }
   wg.addEventListener("dragstart", e=>{
     const row = e.target.closest(".task-row");
     if(!row) return;
@@ -1613,6 +1727,7 @@ function moveTaskToKind(taskId, kindId){
     const row = e.target.closest(".task-row");
     if(row) row.classList.remove("dragging");
     wg.querySelectorAll(".card.drop-target").forEach(c => c.classList.remove("drop-target"));
+    clearRowMarks();
     dragTaskId = null;
   });
   wg.addEventListener("dragover", e=>{
@@ -1621,6 +1736,14 @@ function moveTaskToKind(taskId, kindId){
     if(!card) return;
     e.preventDefault();
     if(e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    // Per-row insertion indicator
+    clearRowMarks();
+    const row = e.target.closest(".task-row");
+    if(row && row.dataset.task !== dragTaskId){
+      const rect = row.getBoundingClientRect();
+      const above = (e.clientY - rect.top) < (rect.height / 2);
+      row.classList.add(above ? "drop-above" : "drop-below");
+    }
   });
   wg.addEventListener("dragenter", e=>{
     if(!dragTaskId) return;
@@ -1638,7 +1761,32 @@ function moveTaskToKind(taskId, kindId){
     if(!card || !dragTaskId) return;
     e.preventDefault();
     card.classList.remove("drop-target");
-    moveTaskToKind(dragTaskId, card.dataset.kind);
+    const kindId = card.dataset.kind;
+    // Determine target position from the row under the cursor, if any.
+    const row = e.target.closest(".task-row");
+    let beforeTaskId = null;
+    if(row && row.dataset.task !== dragTaskId){
+      const rect = row.getBoundingClientRect();
+      const above = (e.clientY - rect.top) < (rect.height / 2);
+      if(above){
+        beforeTaskId = row.dataset.task;
+      }else{
+        // Insert after this row: find the next sibling row in the same kind
+        const siblings = sortedTasksOfKind(kindId);
+        const idx = siblings.findIndex(t => t.id === row.dataset.task);
+        if(idx >= 0 && idx + 1 < siblings.length){
+          // skip over the dragged task if it's already adjacent
+          let nextId = siblings[idx + 1].id;
+          if(nextId === dragTaskId && idx + 2 < siblings.length){
+            nextId = siblings[idx + 2].id;
+          }
+          if(nextId !== dragTaskId) beforeTaskId = nextId;
+        }
+        // else: drop at end
+      }
+    }
+    clearRowMarks();
+    reorderTaskInKind(dragTaskId, kindId, beforeTaskId);
     dragTaskId = null;
   });
 })();
@@ -1647,16 +1795,29 @@ function moveTaskToKind(taskId, kindId){
 function addTask(title, stateId){
   const t = (title || "").trim();
   if(!t) return;
+  const finalStateId = stateId || defaultActiveStateId();
+  const stateForTask = data.states.find(s => s.id === finalStateId);
+  const kindId = stateForTask ? stateForTask.kind : "active";
+  // Place at top of its kind: pick a manualOrder smaller than any existing one
+  let minOrder = 0;
+  for(const ex of data.tasks){
+    if(kindOfTask(ex) === kindId){
+      const o = (typeof ex.manualOrder === "number") ? ex.manualOrder : 0;
+      if(o < minOrder) minOrder = o;
+    }
+  }
   data.tasks.push({
     id: uid(),
     title: t,
     notes: "",
-    stateId: stateId || defaultActiveStateId(),
+    stateId: finalStateId,
     tagIds: [],
     timeSpentMs: 0,
     createdAt: nowMs(),
     completedAt: null,
     subtasks: [],
+    attachments: [],
+    manualOrder: minOrder - 1,
     recurrence: null,
     nextResetAt: null,
     followUpDate: null
@@ -1715,11 +1876,17 @@ document.getElementById("new-task-title").addEventListener("keydown", e=>{
 /* ---------- Task modal ---------- */
 let editingTaskId = null;
 let editingSubtasks = [];
+let editingAttachments = [];
+const ATTACH_MAX_DIM = 1400;
+const ATTACH_QUALITY = 0.82;
 function openTaskModal(taskId){
   const task = getTask(taskId);
   if(!task) return;
   editingTaskId = taskId;
   editingSubtasks = (task.subtasks || []).map(s => ({ id: s.id, title: s.title, done: !!s.done }));
+  editingAttachments = (task.attachments || []).map(a => ({
+    id: a.id, type: a.type || "image", dataUrl: a.dataUrl, addedAt: a.addedAt || nowMs()
+  }));
   document.getElementById("task-modal-title").textContent = "Edit task";
   document.getElementById("task-modal-sub").textContent = "Created " + new Date(task.createdAt || nowMs()).toLocaleString();
   document.getElementById("task-modal-title-input").value = task.title || "";
@@ -1743,6 +1910,8 @@ function openTaskModal(taskId){
   // Subtasks
   renderModalSubtasks();
   document.getElementById("task-modal-subtask-new").value = "";
+  // Attachments
+  renderModalAttachments();
   // Recurrence
   const rec = document.getElementById("task-modal-recurrence");
   // Repopulate options from data.recurrences each time the modal opens
@@ -1784,6 +1953,7 @@ function updateRecurrenceHint(){
 function closeTaskModal(){
   editingTaskId = null;
   editingSubtasks = [];
+  editingAttachments = [];
   document.getElementById("task-modal-bg").classList.remove("open");
 }
 document.getElementById("task-modal-tags").addEventListener("click", e=>{
@@ -1834,6 +2004,164 @@ document.getElementById("task-modal-subtask-new").addEventListener("keydown", e=
     document.getElementById("task-modal-subtask-add").click();
   }
 });
+
+// ---- Attachments (screenshots) ----
+function renderModalAttachments(){
+  const grid = document.getElementById("task-modal-attachments");
+  if(!grid) return;
+  if(!editingAttachments.length){
+    grid.innerHTML = "";
+    return;
+  }
+  grid.innerHTML = editingAttachments.map((a, i) => `
+    <div class="attach-thumb" data-idx="${i}" title="Click to view full size">
+      <img src="${a.dataUrl}" alt="screenshot" />
+      <button type="button" class="del" data-act="del-attach" title="Remove">×</button>
+    </div>
+  `).join("");
+}
+function compressImageDataUrl(dataUrl, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if(!w || !h){ reject(new Error("Empty image")); return; }
+      if(Math.max(w, h) > maxDim){
+        if(w >= h){ h = Math.round(h * maxDim / w); w = maxDim; }
+        else      { w = Math.round(w * maxDim / h); h = maxDim; }
+      }
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      try { resolve(c.toDataURL("image/jpeg", quality)); }
+      catch(err){ reject(err); }
+    };
+    img.onerror = () => reject(new Error("Could not decode image"));
+    img.src = dataUrl;
+  });
+}
+function fileToDataUrl(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error || new Error("Read failed"));
+    r.readAsDataURL(file);
+  });
+}
+async function addAttachmentsFromFiles(files){
+  if(!files || !files.length) return;
+  let added = 0;
+  for(const f of files){
+    if(!f || !f.type || !f.type.startsWith("image/")) continue;
+    try {
+      const raw = await fileToDataUrl(f);
+      const compressed = await compressImageDataUrl(raw, ATTACH_MAX_DIM, ATTACH_QUALITY);
+      editingAttachments.push({
+        id: uid(),
+        type: "image",
+        dataUrl: compressed,
+        addedAt: nowMs()
+      });
+      added++;
+    } catch(err){
+      console.error("attachment add failed:", err);
+    }
+  }
+  if(added) renderModalAttachments();
+}
+// Paste handler: listen globally; only act when task modal is open
+document.addEventListener("paste", e => {
+  if(editingTaskId == null) return;
+  if(!document.getElementById("task-modal-bg").classList.contains("open")) return;
+  // Don't hijack pastes into the title or notes text fields
+  const t = e.target;
+  const tag = t && t.tagName;
+  if(tag === "INPUT" || tag === "TEXTAREA"){
+    // still allow image paste if no text data is present
+    const hasText = e.clipboardData && Array.from(e.clipboardData.items || [])
+      .some(i => i.kind === "string");
+    if(hasText) return;
+  }
+  const items = e.clipboardData && e.clipboardData.items;
+  if(!items) return;
+  const files = [];
+  for(const it of items){
+    if(it.kind === "file"){
+      const f = it.getAsFile();
+      if(f && f.type && f.type.startsWith("image/")) files.push(f);
+    }
+  }
+  if(files.length){
+    e.preventDefault();
+    addAttachmentsFromFiles(files);
+  }
+});
+// File-picker link
+document.getElementById("task-modal-attach-pick").addEventListener("click", () => {
+  document.getElementById("task-modal-attach-file").click();
+});
+document.getElementById("task-modal-attach-file").addEventListener("change", e => {
+  addAttachmentsFromFiles(e.target.files);
+  e.target.value = "";
+});
+// Drop files onto the attach zone
+(function wireAttachDrop(){
+  const z = document.getElementById("task-modal-attach-zone");
+  if(!z) return;
+  ["dragenter","dragover"].forEach(ev => z.addEventListener(ev, e => {
+    e.preventDefault();
+    z.classList.add("dragover");
+  }));
+  ["dragleave","drop"].forEach(ev => z.addEventListener(ev, e => {
+    if(ev === "dragleave" && z.contains(e.relatedTarget)) return;
+    z.classList.remove("dragover");
+  }));
+  z.addEventListener("drop", e => {
+    e.preventDefault();
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if(files && files.length) addAttachmentsFromFiles(files);
+  });
+})();
+// Click thumbnail to view; click delete button to remove
+document.getElementById("task-modal-attachments").addEventListener("click", e => {
+  const del = e.target.closest("[data-act='del-attach']");
+  if(del){
+    const thumb = del.closest(".attach-thumb");
+    const i = parseInt(thumb && thumb.dataset.idx, 10);
+    if(!isNaN(i)){
+      editingAttachments.splice(i, 1);
+      renderModalAttachments();
+    }
+    return;
+  }
+  const thumb = e.target.closest(".attach-thumb");
+  if(thumb){
+    const i = parseInt(thumb.dataset.idx, 10);
+    const a = editingAttachments[i];
+    if(a) openLightbox(a.dataUrl);
+  }
+});
+// Lightbox
+function openLightbox(src){
+  const bg = document.getElementById("lightbox-bg");
+  const img = document.getElementById("lightbox-img");
+  if(!bg || !img) return;
+  img.src = src;
+  bg.classList.add("open");
+}
+function closeLightbox(){
+  const bg = document.getElementById("lightbox-bg");
+  if(!bg) return;
+  bg.classList.remove("open");
+  document.getElementById("lightbox-img").src = "";
+}
+document.getElementById("lightbox-bg").addEventListener("click", closeLightbox);
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape" && document.getElementById("lightbox-bg").classList.contains("open")){
+    closeLightbox();
+  }
+});
+
 document.getElementById("task-modal-recurrence").addEventListener("change", updateRecurrenceHint);
 document.getElementById("task-modal-followup-clear").addEventListener("click", ()=>{
   document.getElementById("task-modal-followup").value = "";
@@ -1868,6 +2196,10 @@ document.getElementById("task-modal-save").addEventListener("click", ()=>{
   task.subtasks = editingSubtasks
     .map(s => ({ id: s.id, title: (s.title || "").trim(), done: !!s.done }))
     .filter(s => s.title.length > 0);
+  // Commit attachments
+  task.attachments = editingAttachments.map(a => ({
+    id: a.id, type: a.type || "image", dataUrl: a.dataUrl, addedAt: a.addedAt || nowMs()
+  }));
   // Recurrence
   const newRec = document.getElementById("task-modal-recurrence").value || null;
   const recChanged = task.recurrence !== newRec;
