@@ -476,6 +476,36 @@
     text-align:center; color:var(--ink-soft);
     font-size:13px; padding:18px 8px;
   }
+  .metric-pie-wrap{
+    display:flex; align-items:center; justify-content:center;
+    padding:8px 4px 14px;
+  }
+  .metric-pie{
+    width:200px; height:200px; display:block;
+    overflow:visible;
+  }
+  .metric-pie .pie-slice{
+    transition:transform .15s ease, filter .15s ease;
+    transform-origin:100px 100px;
+    cursor:default;
+  }
+  .metric-pie .pie-slice:hover{
+    transform:scale(1.04);
+    filter:brightness(1.08);
+  }
+  .metric-pie .pie-hole{ fill:var(--panel); }
+  .metric-pie .pie-center-total{
+    fill:var(--accent-2);
+    font-size:18px; font-weight:800;
+    font-variant-numeric:tabular-nums;
+    text-anchor:middle; dominant-baseline:central;
+  }
+  .metric-pie .pie-center-label{
+    fill:var(--ink-soft);
+    font-size:10px; font-weight:600;
+    text-anchor:middle; dominant-baseline:central;
+    text-transform:uppercase; letter-spacing:.5px;
+  }
   @media (max-width: 800px){
     .metric-grid{ grid-template-columns:1fr; }
   }
@@ -551,12 +581,40 @@
   }
   .admin-item .name{
     flex:1 1 auto; font-weight:600; font-size:14px;
-    background:transparent; border:0; padding:4px 6px;
-    border-radius:6px; color:var(--ink); font-family:inherit;
+    background:#fff; border:1px solid var(--line); padding:6px 8px;
+    border-radius:8px; color:var(--ink); font-family:inherit;
     min-width:0;
+    transition:border-color .15s, background .15s;
   }
+  .admin-item .name:hover{ border-color:var(--accent); }
   .admin-item .name:focus{
-    background:var(--accent-soft); outline:none;
+    background:var(--accent-soft); border-color:var(--accent); outline:none;
+  }
+  .admin-item select{
+    flex:0 1 auto; min-width:0;
+    font-family:inherit; font-size:13px;
+    padding:6px 8px; border-radius:8px;
+    border:1px solid var(--line); background:#fff;
+  }
+  .admin-item .kind-emoji{
+    flex:0 0 auto; width:54px; text-align:center;
+    font-size:16px; padding:6px 4px;
+  }
+  .admin-item .drag-handle{
+    flex:0 0 auto;
+    cursor:grab; user-select:none;
+    color:var(--ink-soft); font-size:14px;
+    padding:0 4px; line-height:1;
+    letter-spacing:-2px;
+  }
+  .admin-item.kind-row.dragging{ opacity:.45; }
+  .admin-item.kind-row.drop-above{
+    border-top:3px solid var(--accent-2);
+    margin-top:-3px;
+  }
+  .admin-item.kind-row.drop-below{
+    border-bottom:3px solid var(--accent-2);
+    margin-bottom:-3px;
   }
   .admin-item .kind-pill{
     font-size:11px; padding:2px 8px; border-radius:999px;
@@ -822,19 +880,14 @@
       <div class="card">
         <h2>🧩 States</h2>
         <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 10px;">
-          Every state belongs to a “kind” that decides which section it shows up in on the <strong>Working on now</strong> tab.
+          These are the sections on the <strong>Working on now</strong> tab and the options in the state dropdown when editing a task. Rename them, change the emoji or color, drag to reorder, or add your own.
         </p>
-        <div id="states-list" class="admin-list"></div>
+        <div id="kinds-list" class="admin-list"></div>
         <div class="admin-add">
-          <input id="new-state-name" type="text" placeholder="New state name" />
-          <select id="new-state-kind">
-            <option value="active">Active</option>
-            <option value="waiting-something">Waiting on something</option>
-            <option value="waiting-someone">Waiting on someone</option>
-            <option value="future">Remember in the future</option>
-            <option value="done">Done</option>
-          </select>
-          <button class="btn" id="btn-add-state">Add state</button>
+          <input type="color" id="new-kind-color" style="width:36px; height:36px; padding:2px; border-radius:8px; cursor:pointer;" title="State color" />
+          <input id="new-kind-emoji" type="text" placeholder="📍" maxlength="4" style="width:54px; text-align:center;" />
+          <input id="new-kind-name" type="text" placeholder="New state name" />
+          <button class="btn" id="btn-add-kind">Add state</button>
         </div>
       </div>
 
@@ -979,13 +1032,50 @@ const FIREBASE_CONFIG = {
 };
 const MAX_FOCUS = 3;
 
-const KINDS = [
-  { id:"active",            label:"Active",                  emoji:"⚡" },
-  { id:"waiting-something", label:"Waiting on something",    emoji:"⏳" },
-  { id:"waiting-someone",   label:"Waiting on someone",      emoji:"💬" },
-  { id:"future",            label:"Remember in the future",  emoji:"📌" },
-  { id:"done",              label:"Done",                    emoji:"✅" }
+// Kinds are the structural sections on the Working tab. Each maps to a color
+// and groups all states (and their tasks) under one section heading.
+// The 5 below are built-in and cannot be deleted (they’re referenced by core
+// logic, e.g. “active” is the default for new tasks and “done” strikes titles).
+// Users can rename them, change emoji/color, and add their own custom kinds.
+const DEFAULT_KINDS = [
+  { id:"active",            label:"Active",                  emoji:"⚡", color:"#e26ba8", builtin:true },
+  { id:"waiting-something", label:"Waiting on something",    emoji:"⏳", color:"#c98a4b", builtin:true },
+  { id:"waiting-someone",   label:"Waiting on someone",      emoji:"💬", color:"#9069d4", builtin:true },
+  { id:"future",            label:"Remember in the future",  emoji:"📌", color:"#5fb3d9", builtin:true },
+  { id:"done",              label:"Done",                    emoji:"✅", color:"#52b788", builtin:true }
 ];
+function isBuiltinKindId(id){
+  return DEFAULT_KINDS.some(d => d.id === id);
+}
+function getKinds(){
+  // User-defined order is the source of truth. If data.kinds is missing or
+  // missing any built-in, fall back to/append DEFAULT_KINDS so the app never
+  // breaks on legacy saves.
+  const overrides = Array.isArray(data && data.kinds) ? data.kinds : [];
+  const list = [];
+  const seen = new Set();
+  for(const k of overrides){
+    if(!k || !k.id || seen.has(k.id)) continue;
+    const dflt = DEFAULT_KINDS.find(d => d.id === k.id);
+    list.push({
+      id: k.id,
+      label: (typeof k.label === "string" && k.label.trim()) ? k.label : (dflt ? dflt.label : "Section"),
+      emoji: (typeof k.emoji === "string" && k.emoji.trim()) ? k.emoji : (dflt ? dflt.emoji : "📍"),
+      color: (typeof k.color === "string" && k.color.trim()) ? k.color : (dflt ? dflt.color : "#888888"),
+      builtin: !!dflt
+    });
+    seen.add(k.id);
+  }
+  // Append any missing built-ins (legacy data).
+  for(const d of DEFAULT_KINDS){
+    if(seen.has(d.id)) continue;
+    list.push({ ...d, builtin: true });
+  }
+  return list;
+}
+function getKind(id){
+  return getKinds().find(k => k.id === id) || null;
+}
 
 const DEFAULT_STATES = [
   { id:"s-active",    name:"Active",                  kind:"active",            builtin:true  },
@@ -1029,6 +1119,7 @@ const DEFAULT_DATA = {
   tags: DEFAULT_TAGS,
   projects: DEFAULT_PROJECTS,
   recurrences: DEFAULT_RECURRENCES,
+  kinds: DEFAULT_KINDS,
   tasks: [],         // { id, title, notes, stateId, projectId, tagIds[], timeSpentMs, createdAt, completedAt, attachments[], manualOrder }
   sessions: [],      // { id, taskId, projectId, startedAt, endedAt } — one per timer stop
   focusOrder: [],    // task ids in focus, length <= MAX_FOCUS
@@ -1092,6 +1183,30 @@ function mergeWithDefaults(parsed){
     states: Array.isArray(parsed.states) && parsed.states.length ? parsed.states : clone(DEFAULT_STATES),
     tags:   Array.isArray(parsed.tags)   ? parsed.tags   : clone(DEFAULT_TAGS),
     projects: Array.isArray(parsed.projects) ? parsed.projects.filter(p => p && p.id) : [],
+    kinds: Array.isArray(parsed.kinds)
+      ? (function(){
+          const list = [];
+          const seen = new Set();
+          // Preserve user's order.
+          for(const k of parsed.kinds){
+            if(!k || !k.id || seen.has(k.id)) continue;
+            const dflt = DEFAULT_KINDS.find(d => d.id === k.id);
+            list.push({
+              id: k.id,
+              label: (typeof k.label === "string" && k.label.trim()) ? k.label : (dflt ? dflt.label : "Section"),
+              emoji: (typeof k.emoji === "string" && k.emoji.trim()) ? k.emoji : (dflt ? dflt.emoji : "📍"),
+              color: (typeof k.color === "string" && k.color.trim()) ? k.color : (dflt ? dflt.color : "#888888"),
+              builtin: !!dflt
+            });
+            seen.add(k.id);
+          }
+          // Append missing built-ins.
+          for(const d of DEFAULT_KINDS){
+            if(!seen.has(d.id)) list.push({ ...d, builtin: true });
+          }
+          return list;
+        })()
+      : clone(DEFAULT_KINDS),
     // Recurrences are no longer user-editable; always seed from defaults.
     recurrences: clone(DEFAULT_RECURRENCES),
     tasks:  (Array.isArray(parsed.tasks) ? parsed.tasks : []).map(t => normalizeTask(t, oldRecMap)),
@@ -1225,6 +1340,32 @@ function escapeHtml(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[c]));
+}
+/**
+ * Escape HTML, then convert URLs to clickable links.
+ * Supported: http(s):// URLs, bare www. URLs, and mailto: addresses.
+ * Trailing punctuation like ).,!?;: is excluded from the link target so
+ * "see (https://example.com)." doesn't include the closing paren.
+ */
+function linkifyText(s){
+  const escaped = escapeHtml(s);
+  // After escaping, & became &amp;. We need to keep the regex matching on the
+  // escaped form, so URLs containing & query params still work.
+  const urlRe = /(\bhttps?:\/\/[^\s<]+|\bwww\.[^\s<]+|\bmailto:[^\s<]+)/gi;
+  return escaped.replace(urlRe, raw => {
+    // Trim trailing punctuation that's almost certainly not part of the URL.
+    let url = raw;
+    let trail = "";
+    const trailMatch = url.match(/[)\].,!?;:'"]+$/);
+    if(trailMatch){
+      trail = trailMatch[0];
+      url = url.slice(0, -trail.length);
+    }
+    // Decode &amp; → & for the href so links work; keep escaped text for display.
+    const href = url.startsWith("www.") ? "https://" + url : url;
+    const hrefAttr = href.replace(/&amp;/g, "&");
+    return `<a href="${hrefAttr}" target="_blank" rel="noopener noreferrer">${url}</a>${trail}`;
+  });
 }
 
 /* ---------- Save indicator ---------- */
@@ -1682,7 +1823,7 @@ function renderFocusSlot(task, idx){
   const followChip = followUpChipHtml(task);
   const t = effectiveTime(task);
   const notes = (task.notes || "").trim();
-  const notesHtml = notes ? `<div class="focus-notes">${escapeHtml(notes)}</div>` : "";
+  const notesHtml = notes ? `<div class="focus-notes">${linkifyText(notes)}</div>` : "";
   const projChip = projectChipHtml(task);
   const project = task.projectId ? getProject(task.projectId) : null;
   const projStyle = project ? ` style="--project-color:${escapeHtml(project.color)};"` : "";
@@ -1806,7 +1947,7 @@ function renderWorking(){
 
   const groups = document.getElementById("working-groups");
   if(!groups) return;
-  const html = KINDS.map(k => {
+  const html = getKinds().map(k => {
     const tasks = data.tasks
       .filter(t => kindOfTask(t) === k.id)
       .sort((a, b) => {
@@ -1864,11 +2005,16 @@ function renderTaskRow(task){
     : "";
   const projChip = projectChipHtml(task);
   const project = task.projectId ? getProject(task.projectId) : null;
-  const projStyle = project ? ` style="--project-color:${escapeHtml(project.color)};"` : "";
+  const kindObj = getKind(k);
+  const kindColor = kindObj ? kindObj.color : null;
+  const styleParts = [];
+  if(project) styleParts.push(`--project-color:${escapeHtml(project.color)}`);
+  if(kindColor) styleParts.push(`border-left-color:${escapeHtml(kindColor)}`);
+  const styleAttr = styleParts.length ? ` style="${styleParts.join("; ")};"` : "";
   const projCls = project ? " has-project" : "";
   const ms = effectiveTime(task);
   return `
-    <div class="task-row ${focused ? "focused" : ""} kind-${k}${projCls}" data-task="${task.id}" draggable="true"${projStyle}>
+    <div class="task-row ${focused ? "focused" : ""} kind-${k}${projCls}" data-task="${task.id}" draggable="true"${styleAttr}>
       <button class="star-btn ${focused ? "on" : ""}" data-act="toggle-focus" title="${focused ? "Remove from Focus" : "Add to Focus"}">${focused ? "★" : "☆"}</button>
       <div class="task-main" data-act="edit" title="Click to edit">
         <div class="task-title-row">
@@ -2518,29 +2664,36 @@ document.getElementById("task-modal-reset-time").addEventListener("click", ()=>{
 
 /* ---------- Render: Admin ---------- */
 function renderAdmin(){
-  // States
-  const sl = document.getElementById("states-list");
-  sl.innerHTML = data.states.map(s => {
-    const kind = KINDS.find(k => k.id === s.kind) || KINDS[0];
-    const kindColor =
-      s.kind === "active" ? "var(--kind-active)" :
-      s.kind === "waiting-something" ? "var(--kind-something)" :
-      s.kind === "waiting-someone" ? "var(--kind-someone)" :
-      s.kind === "future" ? "var(--kind-future)" :
-      "var(--kind-done)";
-    const usage = data.tasks.filter(t => t.stateId === s.id).length;
-    return `
-      <div class="admin-item ${s.builtin ? "builtin" : ""}" data-state="${s.id}">
-        <span class="swatch" style="background:${kindColor}"></span>
-        <input class="name" data-act="rename-state" value="${escapeHtml(s.name)}" />
-        <select data-act="set-state-kind">
-          ${KINDS.map(k => `<option value="${k.id}" ${k.id === s.kind ? "selected" : ""}>${k.emoji} ${k.label}</option>`).join("")}
-        </select>
-        <span class="kind-pill" title="${usage} task${usage === 1 ? "" : "s"}">${usage}</span>
-        <button class="icon" data-act="delete-state" title="${s.builtin ? "Built-in states can’t be deleted" : "Delete"}" ${s.builtin ? "disabled style='opacity:.3; cursor:not-allowed;'" : ""}>🗑️</button>
-      </div>
-    `;
-  }).join("");
+  const kinds = getKinds();
+
+  // States (rendered as the "Sections/Kinds" admin card — one row per kind/state)
+  const kl = document.getElementById("kinds-list");
+  if(kl){
+    kl.innerHTML = kinds.map(k => {
+      // Task count for this section = tasks whose current state belongs to this kind.
+      const taskCount = data.tasks.filter(t => kindOfTask(t) === k.id).length;
+      const deleteTitle = k.builtin
+        ? "Built-in state can’t be deleted"
+        : (taskCount > 0 ? `Delete (${taskCount} task${taskCount === 1 ? "" : "s"} will move to Active)` : "Delete state");
+      const canDelete = !k.builtin;
+      return `
+        <div class="admin-item kind-row ${k.builtin ? "builtin" : ""}" data-kind="${k.id}" draggable="true">
+          <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
+          <input type="color" data-act="set-kind-color" value="${escapeHtml(k.color)}" style="width:32px; height:32px; padding:2px; border-radius:8px; cursor:pointer;" title="State color" />
+          <input class="name kind-emoji" data-act="set-kind-emoji" value="${escapeHtml(k.emoji)}" maxlength="4" title="Emoji" />
+          <input class="name" data-act="rename-kind" value="${escapeHtml(k.label)}" />
+          <span class="kind-pill" title="${taskCount} task${taskCount === 1 ? "" : "s"}">${taskCount}</span>
+          <button class="icon" data-act="delete-kind" title="${deleteTitle}" ${canDelete ? "" : "disabled style='opacity:.3; cursor:not-allowed;'"}>🗑️</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // Seed the "new state" color picker with a suggested color.
+  const newKindColor = document.getElementById("new-kind-color");
+  if(newKindColor){
+    newKindColor.value = suggestNextColor(kinds.map(k => k.color));
+  }
 
   // Tags
   const tl = document.getElementById("tags-list");
@@ -2591,54 +2744,183 @@ function renderAdmin(){
   }
 }
 
-document.getElementById("states-list").addEventListener("change", e=>{
+/* ---------- Kinds (admin) ---------- */
+function ensureKindsArray(){
+  if(!Array.isArray(data.kinds)) data.kinds = [];
+  // Ensure built-ins exist so overrides have something to write to.
+  for(const d of DEFAULT_KINDS){
+    if(!data.kinds.find(k => k && k.id === d.id)){
+      data.kinds.push({ ...d });
+    }
+  }
+}
+document.getElementById("kinds-list").addEventListener("change", e=>{
   const t = e.target;
   const item = t.closest(".admin-item");
   if(!item) return;
-  const id = item.dataset.state;
-  const state = getState(id);
-  if(!state) return;
-  if(t.dataset.act === "rename-state"){
+  const id = item.dataset.kind;
+  ensureKindsArray();
+  const k = data.kinds.find(x => x.id === id);
+  if(!k) return;
+  const dflt = DEFAULT_KINDS.find(x => x.id === id);
+  if(t.dataset.act === "rename-kind"){
     const v = t.value.trim();
-    if(!v){ t.value = state.name; return; }
-    state.name = v;
-    save();
-    renderAll();
-  }else if(t.dataset.act === "set-state-kind"){
-    state.kind = t.value;
-    save();
-    renderAll();
+    if(!v){
+      const fallback = dflt ? dflt.label : "State";
+      t.value = fallback;
+      k.label = fallback;
+    }else{
+      k.label = v;
+    }
+    // Keep the underlying state name(s) in sync so the task-modal state dropdown
+    // and metrics show the new name. (States admin is no longer exposed in UI.)
+    data.states.forEach(s => { if(s.kind === id) s.name = k.label; });
+    save(); renderAll();
+  }else if(t.dataset.act === "set-kind-emoji"){
+    const v = t.value.trim();
+    if(!v){
+      const fallback = dflt ? dflt.emoji : "📍";
+      t.value = fallback;
+      k.emoji = fallback;
+    }else{
+      k.emoji = v;
+    }
+    save(); renderAll();
+  }else if(t.dataset.act === "set-kind-color"){
+    k.color = t.value;
+    save(); renderAll();
   }
 });
-document.getElementById("states-list").addEventListener("click", e=>{
-  const btn = e.target.closest("[data-act='delete-state']");
+document.getElementById("kinds-list").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-act='delete-kind']");
   if(!btn || btn.disabled) return;
   const item = btn.closest(".admin-item");
-  const id = item.dataset.state;
-  const state = getState(id);
-  if(!state || state.builtin) return;
-  const usage = data.tasks.filter(t => t.stateId === id).length;
-  if(usage > 0){
-    if(!confirm(`${usage} task${usage === 1 ? "" : "s"} use this state. They’ll be moved to “Active”. Delete?`)) return;
+  const id = item.dataset.kind;
+  if(isBuiltinKindId(id)) return;
+  const k = (data.kinds || []).find(x => x.id === id);
+  if(!k) return;
+  // Tasks in any state belonging to this kind will be reassigned to Active.
+  const affectedStateIds = data.states.filter(s => s.kind === id).map(s => s.id);
+  const taskCount = data.tasks.filter(t => affectedStateIds.includes(t.stateId)).length;
+  const msg = taskCount > 0
+    ? `Delete state “${k.label}”? ${taskCount} task${taskCount === 1 ? "" : "s"} will move to Active.`
+    : `Delete state “${k.label}”?`;
+  if(!confirm(msg)) return;
+  if(taskCount > 0){
     const fallback = defaultActiveStateId();
-    data.tasks.forEach(t => { if(t.stateId === id) t.stateId = fallback; });
-  }else{
-    if(!confirm(`Delete state “${state.name}”?`)) return;
+    data.tasks.forEach(t => { if(affectedStateIds.includes(t.stateId)) t.stateId = fallback; });
   }
-  data.states = data.states.filter(s => s.id !== id);
-  save();
-  renderAll();
+  // Remove the underlying states and the kind itself.
+  data.states = data.states.filter(s => s.kind !== id);
+  data.kinds = data.kinds.filter(x => x.id !== id);
+  save(); renderAll();
+});
+document.getElementById("btn-add-kind").addEventListener("click", ()=>{
+  const nameEl = document.getElementById("new-kind-name");
+  const emojiEl = document.getElementById("new-kind-emoji");
+  const colorEl = document.getElementById("new-kind-color");
+  const name = nameEl.value.trim();
+  if(!name) return;
+  const emoji = emojiEl.value.trim() || "📍";
+  const color = colorEl.value || "#888888";
+  ensureKindsArray();
+  const kindId = "k-" + uid();
+  data.kinds.push({
+    id: kindId,
+    label: name,
+    emoji: emoji,
+    color: color,
+    builtin: false
+  });
+  // Auto-create a matching state so tasks can actually be assigned to this new
+  // state from the task modal dropdown.
+  data.states.push({
+    id: "s-" + uid(),
+    name: name,
+    kind: kindId,
+    builtin: false
+  });
+  nameEl.value = "";
+  emojiEl.value = "";
+  save(); renderAll();
 });
 
-document.getElementById("btn-add-state").addEventListener("click", ()=>{
-  const name = document.getElementById("new-state-name").value.trim();
-  const kind = document.getElementById("new-state-kind").value;
-  if(!name) return;
-  data.states.push({ id: "s-" + uid(), name, kind, builtin: false });
-  document.getElementById("new-state-name").value = "";
-  save();
-  renderAll();
-});
+/* ---------- Kinds drag-to-reorder ---------- */
+(function(){
+  const kl = document.getElementById("kinds-list");
+  if(!kl) return;
+  let dragKindId = null;
+  function clearMarks(){
+    kl.querySelectorAll(".kind-row.drop-above, .kind-row.drop-below")
+      .forEach(r => r.classList.remove("drop-above", "drop-below"));
+  }
+  // Don't initiate drag from form controls inside the row.
+  kl.addEventListener("mousedown", e=>{
+    const row = e.target.closest(".kind-row");
+    if(!row) return;
+    if(e.target.closest("input, button, select")){
+      row.setAttribute("draggable", "false");
+    }else{
+      row.setAttribute("draggable", "true");
+    }
+  });
+  kl.addEventListener("dragstart", e=>{
+    const row = e.target.closest(".kind-row");
+    if(!row) return;
+    if(e.target.closest("input, button, select")){
+      e.preventDefault();
+      return;
+    }
+    dragKindId = row.dataset.kind;
+    row.classList.add("dragging");
+    if(e.dataTransfer){
+      e.dataTransfer.effectAllowed = "move";
+      try{ e.dataTransfer.setData("text/plain", dragKindId); }catch(_){}
+    }
+  });
+  kl.addEventListener("dragend", e=>{
+    const row = e.target.closest(".kind-row");
+    if(row) row.classList.remove("dragging");
+    clearMarks();
+    dragKindId = null;
+  });
+  kl.addEventListener("dragover", e=>{
+    if(!dragKindId) return;
+    const row = e.target.closest(".kind-row");
+    if(!row) return;
+    e.preventDefault();
+    if(e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    clearMarks();
+    if(row.dataset.kind === dragKindId) return;
+    const rect = row.getBoundingClientRect();
+    const above = (e.clientY - rect.top) < (rect.height / 2);
+    row.classList.add(above ? "drop-above" : "drop-below");
+  });
+  kl.addEventListener("drop", e=>{
+    if(!dragKindId) return;
+    const row = e.target.closest(".kind-row");
+    if(!row){ clearMarks(); dragKindId = null; return; }
+    e.preventDefault();
+    const targetId = row.dataset.kind;
+    clearMarks();
+    if(targetId === dragKindId){ dragKindId = null; return; }
+    const rect = row.getBoundingClientRect();
+    const above = (e.clientY - rect.top) < (rect.height / 2);
+    ensureKindsArray();
+    // Remove the dragged kind, then insert at the new position.
+    const list = data.kinds.slice();
+    const fromIdx = list.findIndex(k => k && k.id === dragKindId);
+    if(fromIdx < 0){ dragKindId = null; return; }
+    const [moved] = list.splice(fromIdx, 1);
+    let toIdx = list.findIndex(k => k && k.id === targetId);
+    if(toIdx < 0) toIdx = list.length;
+    if(!above) toIdx += 1;
+    list.splice(toIdx, 0, moved);
+    data.kinds = list;
+    dragKindId = null;
+    save(); renderAll();
+  });
+})();
 
 document.getElementById("tags-list").addEventListener("change", e=>{
   const t = e.target;
@@ -2849,6 +3131,65 @@ function fmtMetricDuration(ms){
   if(h === 0) return m + "m";
   return h + "h " + (m < 10 ? "0" : "") + m + "m";
 }
+/**
+ * Build an SVG donut chart from rows like { name, color, ms }.
+ * Slices < ~1% are still drawn so they get a tooltip, but they may be visually thin.
+ * If `rows` has > maxSlices entries, the smallest are bucketed into "Other".
+ */
+function pieSvg(rows, totalMs, opts){
+  const maxSlices = (opts && opts.maxSlices) || 8;
+  const centerLabel = (opts && opts.centerLabel) || "Total";
+  if(!rows.length || totalMs <= 0){
+    return `<div class="metric-pie-wrap"><div class="metric-empty">No data yet.</div></div>`;
+  }
+  // Bucket overflow into "Other"
+  let slices = rows.slice();
+  if(slices.length > maxSlices){
+    const head = slices.slice(0, maxSlices - 1);
+    const tail = slices.slice(maxSlices - 1);
+    const otherMs = tail.reduce((s, r) => s + r.ms, 0);
+    if(otherMs > 0){
+      head.push({ name: `Other (${tail.length})`, color: "#cccccc", ms: otherMs });
+    }
+    slices = head;
+  }
+  const cx = 100, cy = 100, r = 88, hole = 52;
+  // Special case: one non-zero slice = full circle (arcs of full circle don't render).
+  const nonZero = slices.filter(s => s.ms > 0);
+  let paths = "";
+  if(nonZero.length === 1){
+    const s = nonZero[0];
+    const pct = 100;
+    const title = `${s.name} — ${fmtMetricDuration(s.ms)} (${pct}%)`;
+    paths = `<circle class="pie-slice" cx="${cx}" cy="${cy}" r="${r}" fill="${escapeHtml(s.color)}"><title>${escapeHtml(title)}</title></circle>`;
+  }else{
+    let a0 = -Math.PI / 2; // start at top
+    for(const s of nonZero){
+      const frac = s.ms / totalMs;
+      const a1 = a0 + frac * Math.PI * 2;
+      const x0 = cx + r * Math.cos(a0);
+      const y0 = cy + r * Math.sin(a0);
+      const x1 = cx + r * Math.cos(a1);
+      const y1 = cy + r * Math.sin(a1);
+      const large = (a1 - a0) > Math.PI ? 1 : 0;
+      const d = `M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`;
+      const pct = Math.round(frac * 1000) / 10;
+      const title = `${s.name} — ${fmtMetricDuration(s.ms)} (${pct}%)`;
+      paths += `<path class="pie-slice" d="${d}" fill="${escapeHtml(s.color)}"><title>${escapeHtml(title)}</title></path>`;
+      a0 = a1;
+    }
+  }
+  return `
+    <div class="metric-pie-wrap">
+      <svg class="metric-pie" viewBox="0 0 200 200" role="img" aria-label="${escapeHtml(centerLabel)}">
+        ${paths}
+        <circle class="pie-hole" cx="${cx}" cy="${cy}" r="${hole}"></circle>
+        <text class="pie-center-total" x="${cx}" y="${cy - 6}">${escapeHtml(fmtMetricDuration(totalMs))}</text>
+        <text class="pie-center-label" x="${cx}" y="${cy + 14}">${escapeHtml(centerLabel)}</text>
+      </svg>
+    </div>
+  `;
+}
 function renderMetrics(){
   const totalEl = document.getElementById("metric-total");
   if(!totalEl) return;
@@ -2866,7 +3207,8 @@ function renderMetrics(){
   if(!m.byProject.length){
     projEl.innerHTML = `<div class="metric-empty">No time tracked in this range yet.</div>`;
   }else{
-    projEl.innerHTML = m.byProject.map(r => {
+    const pie = pieSvg(m.byProject, m.totalMs, { centerLabel: "Total", maxSlices: 8 });
+    const list = m.byProject.map(r => {
       const pct = Math.max(2, Math.round(100 * r.ms / maxProj));
       return `
         <div class="metric-row" style="--bar-color:${escapeHtml(r.color)};">
@@ -2877,13 +3219,24 @@ function renderMetrics(){
         </div>
       `;
     }).join("");
+    projEl.innerHTML = pie + list;
   }
   if(!m.byTask.length){
     taskEl.innerHTML = `<div class="metric-empty">No time tracked in this range yet.</div>`;
   }else{
-    // Show top 25 tasks to keep the list manageable
+    // Pie: top tasks, colored by project (or grey if no project)
+    const pieRows = m.byTask.map(r => {
+      const proj = r.projectId ? getProject(r.projectId) : null;
+      return {
+        name: r.title,
+        color: proj ? proj.color : "#bdbdbd",
+        ms: r.ms
+      };
+    });
+    const pie = pieSvg(pieRows, m.totalMs, { centerLabel: "Total", maxSlices: 8 });
+    // Show top 25 tasks in the legend list to keep it manageable
     const top = m.byTask.slice(0, 25);
-    taskEl.innerHTML = top.map(r => {
+    const list = top.map(r => {
       const proj = r.projectId ? getProject(r.projectId) : null;
       const color = proj ? proj.color : "#bdbdbd";
       const projSub = proj ? `<span class="sub">📁 ${escapeHtml(proj.name)}</span>` : "";
@@ -2897,9 +3250,11 @@ function renderMetrics(){
         </div>
       `;
     }).join("");
+    let html = pie + list;
     if(m.byTask.length > 25){
-      taskEl.innerHTML += `<div class="metric-empty">+ ${m.byTask.length - 25} more</div>`;
+      html += `<div class="metric-empty">+ ${m.byTask.length - 25} more</div>`;
     }
+    taskEl.innerHTML = html;
   }
 }
 document.getElementById("metrics-range").addEventListener("click", e => {
