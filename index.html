@@ -207,6 +207,11 @@
   .chip .swatch{
     width:8px; height:8px; border-radius:50%; background:var(--accent);
   }
+  .chip.project-chip{
+    color:#fff; border:0; padding:3px 10px;
+    text-shadow:0 1px 0 rgba(0,0,0,.15);
+  }
+  .chip.project-chip.dark-on-light{ color:#1a1a1a; text-shadow:none; }
 
   .empty{
     text-align:center; color:var(--ink-soft);
@@ -239,6 +244,12 @@
   .focus-slot.running{
     border-color:var(--accent);
     box-shadow:0 0 0 4px rgba(226,107,168,.18), var(--shadow);
+  }
+  /* Project tint on focus slots: thick top stripe in the project's color. */
+  .focus-slot.has-project::before{
+    content:""; position:absolute; top:0; left:0; right:0;
+    height:6px; border-radius:18px 18px 0 0;
+    background:var(--project-color, var(--accent));
   }
   .focus-slot .slot-num{
     position:absolute; top:10px; left:14px;
@@ -319,6 +330,19 @@
   .task-row.kind-someone  { border-left-color:var(--kind-someone); }
   .task-row.kind-future   { border-left-color:var(--kind-future); }
   .task-row.kind-done     { border-left-color:var(--kind-done); opacity:.72; }
+  /* When a project is set, the whole row takes on a tinted version of the project color. */
+  .task-row.has-project{
+    border-left-width:6px;
+    border-left-color: var(--project-color, var(--accent));
+    background: color-mix(in srgb, var(--project-color, var(--accent)) 22%, #fff);
+    border-color: color-mix(in srgb, var(--project-color, var(--accent)) 45%, var(--line));
+    border-left-color: var(--project-color, var(--accent));
+  }
+  .task-row.has-project.focused{
+    background: color-mix(in srgb, var(--project-color, var(--accent)) 42%, #fff);
+    border-color: color-mix(in srgb, var(--project-color, var(--accent)) 70%, var(--line));
+    border-left-color: var(--project-color, var(--accent));
+  }
 
   /* Drag-and-drop between kind groups */
   .task-row[draggable="true"]{ cursor:grab; }
@@ -715,6 +739,19 @@
           <button class="btn" id="btn-add-tag">Add tag</button>
         </div>
       </div>
+
+      <div class="card">
+        <h2>📁 Projects</h2>
+        <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 10px;">
+          Group related tasks under a project. Tasks adopt the project’s color so they’re easy to spot.
+        </p>
+        <div id="projects-list" class="admin-list"></div>
+        <div class="admin-add">
+          <input id="new-project-name" type="text" placeholder="New project name" />
+          <input id="new-project-color" type="color" value="#6f8cf0" style="width:48px; padding:2px; height:36px;" />
+          <button class="btn" id="btn-add-project">Add project</button>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -750,6 +787,9 @@
 
     <label class="field-lbl">State</label>
     <select id="task-modal-state"></select>
+
+    <label class="field-lbl">Project</label>
+    <select id="task-modal-project"></select>
 
     <label class="field-lbl">Tags</label>
     <div id="task-modal-tags" class="tag-picker"></div>
@@ -851,6 +891,8 @@ const DEFAULT_TAGS = [
   { id:"t-admin",  name:"admin",   color:"#5fb3d9" }
 ];
 
+const DEFAULT_PROJECTS = [];
+
 const DEFAULT_RECURRENCES = [
   { id:"r-weekday", name:"Every weekday morning", type:"weekday", builtin:true },
   { id:"r-week",    name:"Every week",            type:"week",    builtin:true },
@@ -874,8 +916,9 @@ const RECURRENCE_TYPES = [
 const DEFAULT_DATA = {
   states: DEFAULT_STATES,
   tags: DEFAULT_TAGS,
+  projects: DEFAULT_PROJECTS,
   recurrences: DEFAULT_RECURRENCES,
-  tasks: [],         // { id, title, notes, stateId, tagIds[], timeSpentMs, createdAt, completedAt }
+  tasks: [],         // { id, title, notes, stateId, projectId, tagIds[], timeSpentMs, createdAt, completedAt, attachments[], manualOrder }
   focusOrder: [],    // task ids in focus, length <= MAX_FOCUS
   running: {},       // map of taskId -> startedAt (epoch ms). Multiple tasks may run simultaneously.
   paused: false,     // true when “Pause all work” is engaged
@@ -936,6 +979,7 @@ function mergeWithDefaults(parsed){
     ...parsed,
     states: Array.isArray(parsed.states) && parsed.states.length ? parsed.states : clone(DEFAULT_STATES),
     tags:   Array.isArray(parsed.tags)   ? parsed.tags   : clone(DEFAULT_TAGS),
+    projects: Array.isArray(parsed.projects) ? parsed.projects.filter(p => p && p.id) : [],
     // Recurrences are no longer user-editable; always seed from defaults.
     recurrences: clone(DEFAULT_RECURRENCES),
     tasks:  (Array.isArray(parsed.tasks) ? parsed.tasks : []).map(t => normalizeTask(t, oldRecMap)),
@@ -999,6 +1043,7 @@ function normalizeTask(t, oldRecMap){
     title:       t.title || "",
     notes:       t.notes || "",
     stateId:     t.stateId,
+    projectId:   (typeof t.projectId === "string" && t.projectId) ? t.projectId : null,
     tagIds:      Array.isArray(t.tagIds) ? t.tagIds : [],
     timeSpentMs: t.timeSpentMs || 0,
     createdAt:   t.createdAt || nowMs(),
@@ -1008,6 +1053,15 @@ function normalizeTask(t, oldRecMap){
       title: s.title || "",
       done:  !!s.done
     })) : [],
+    attachments: Array.isArray(t.attachments) ? t.attachments
+      .filter(a => a && typeof a.dataUrl === "string")
+      .map(a => ({
+        id:      a.id || uid(),
+        type:    a.type || "image",
+        dataUrl: a.dataUrl,
+        addedAt: a.addedAt || nowMs()
+      })) : [],
+    manualOrder: (typeof t.manualOrder === "number") ? t.manualOrder : 0,
     recurrence:   rec,
     nextResetAt:  t.nextResetAt || null,
     followUpDate: (typeof t.followUpDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.followUpDate)) ? t.followUpDate : null
@@ -1123,6 +1177,60 @@ function runningTaskIds(){
 function getTask(id){ return data.tasks.find(t => t.id === id); }
 function getState(id){ return data.states.find(s => s.id === id); }
 function getTag(id){ return data.tags.find(t => t.id === id); }
+function getProject(id){ return (data.projects || []).find(p => p.id === id); }
+// Curated palette used to suggest distinct colors when creating new tags/projects.
+const SUGGESTED_COLORS = [
+  "#e26ba8", // pink
+  "#6f8cf0", // blue
+  "#52b788", // green
+  "#f39c4d", // orange
+  "#9069d4", // purple
+  "#5fb3d9", // sky
+  "#d94a6a", // crimson
+  "#f6c453", // amber
+  "#48a999", // teal
+  "#c44d8a", // magenta
+  "#7fa650", // olive
+  "#b85c38", // rust
+  "#4a7ab8", // navy
+  "#a35c9a", // mauve
+  "#3aa17e", // jade
+  "#e07a5f"  // coral
+];
+function suggestNextColor(usedColors){
+  const used = new Set((usedColors || []).map(c => (c || "").toLowerCase()));
+  for(const c of SUGGESTED_COLORS){
+    if(!used.has(c.toLowerCase())) return c;
+  }
+  // All palette colors taken — generate a random pleasant hue.
+  const h = Math.floor(Math.random() * 360);
+  // HSL → hex
+  const s = 0.55, l = 0.55;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const k = (n + h / 30) % 12;
+    const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+// Pick dark or light text for a given hex background so the project chip stays legible.
+function isLightColor(hex){
+  if(typeof hex !== "string") return false;
+  const m = hex.replace("#","").match(/^([0-9a-f]{6})$/i);
+  if(!m) return false;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  // perceived luminance
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 170;
+}
+function projectChipHtml(task){
+  if(!task || !task.projectId) return "";
+  const p = getProject(task.projectId);
+  if(!p) return "";
+  const cls = isLightColor(p.color) ? "chip project-chip dark-on-light" : "chip project-chip";
+  return `<span class="${cls}" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">📁 ${escapeHtml(p.name)}</span>`;
+}
 function getRecurrence(id){
   if(!id || !Array.isArray(data.recurrences)) return null;
   return data.recurrences.find(r => r.id === id) || null;
@@ -1441,6 +1549,10 @@ function renderFocusSlot(task, idx){
   const t = effectiveTime(task);
   const notes = (task.notes || "").trim();
   const notesHtml = notes ? `<div class="focus-notes">${escapeHtml(notes)}</div>` : "";
+  const projChip = projectChipHtml(task);
+  const project = task.projectId ? getProject(task.projectId) : null;
+  const projStyle = project ? ` style="--project-color:${escapeHtml(project.color)};"` : "";
+  const projCls = project ? " has-project" : "";
   const subs = task.subtasks || [];
   const prog = progressOf(task);
   const visible = subs.slice(0, 5);
@@ -1456,14 +1568,14 @@ function renderFocusSlot(task, idx){
         <div class="more" style="text-align:right;">${prog.done} / ${prog.total} done</div>
       </div>`;
   return `
-    <div class="focus-slot ${running ? "running" : ""}" data-task="${task.id}">
+    <div class="focus-slot ${running ? "running" : ""}${projCls}" data-task="${task.id}"${projStyle}>
       <span class="slot-num">Slot ${idx+1}</span>
       <div class="reorder">
         ${idx > 0 ? `<button data-act="up" title="Move up">↑</button>` : ""}
         ${idx < data.focusOrder.length - 1 ? `<button data-act="down" title="Move down">↓</button>` : ""}
       </div>
       <div class="task-title" data-act="edit">${escapeHtml(task.title)}</div>
-      <div class="task-tags">${tags}${recurChip}${followChip}</div>
+      <div class="task-tags">${projChip}${tags}${recurChip}${followChip}</div>
       ${notesHtml}
       ${subsHtml}
       <div class="timer-display" data-role="timer">${fmtTimerBig(t)}</div>
@@ -1611,14 +1723,18 @@ function renderTaskRow(task){
   const attachChip = attachCount > 0
     ? `<span class="chip row-attach-chip" title="${attachCount} screenshot${attachCount===1?"":"s"}">🖼️ ${attachCount}</span>`
     : "";
+  const projChip = projectChipHtml(task);
+  const project = task.projectId ? getProject(task.projectId) : null;
+  const projStyle = project ? ` style="--project-color:${escapeHtml(project.color)};"` : "";
+  const projCls = project ? " has-project" : "";
   const ms = effectiveTime(task);
   return `
-    <div class="task-row ${focused ? "focused" : ""} kind-${k}" data-task="${task.id}" draggable="true">
+    <div class="task-row ${focused ? "focused" : ""} kind-${k}${projCls}" data-task="${task.id}" draggable="true"${projStyle}>
       <button class="star-btn ${focused ? "on" : ""}" data-act="toggle-focus" title="${focused ? "Remove from Focus" : "Add to Focus"}">${focused ? "★" : "☆"}</button>
       <div class="task-main" data-act="edit" title="Click to edit">
         <div class="task-title-row">
           <span class="title">${escapeHtml(task.title)}</span>
-          ${tagChips}${progressChip}${recurChip}${followChip}${attachChip}
+          ${projChip}${tagChips}${progressChip}${recurChip}${followChip}${attachChip}
         </div>
         <div class="task-meta">
           <span class="time ${running ? "running" : ""}" data-role="row-time">${fmtDuration(ms)}</span>
@@ -1811,6 +1927,7 @@ function addTask(title, stateId){
     title: t,
     notes: "",
     stateId: finalStateId,
+    projectId: null,
     tagIds: [],
     timeSpentMs: 0,
     createdAt: nowMs(),
@@ -1895,6 +2012,14 @@ function openTaskModal(taskId){
   sel.innerHTML = data.states.map(s =>
     `<option value="${s.id}" ${s.id === task.stateId ? "selected" : ""}>${escapeHtml(s.name)}</option>`
   ).join("");
+  // Project picker
+  const projSel = document.getElementById("task-modal-project");
+  const projOpts = [`<option value="">(None)</option>`].concat(
+    (data.projects || []).map(p =>
+      `<option value="${escapeHtml(p.id)}" ${p.id === task.projectId ? "selected" : ""}>${escapeHtml(p.name)}</option>`
+    )
+  );
+  projSel.innerHTML = projOpts.join("");
   // Tag picker
   const picker = document.getElementById("task-modal-tags");
   if(data.tags.length === 0){
@@ -2190,6 +2315,8 @@ document.getElementById("task-modal-save").addEventListener("click", ()=>{
   const wasKind = kindOfTask(task);
   task.stateId = newStateId;
   const nowKind = kindOfTask(task);
+  const projVal = document.getElementById("task-modal-project").value || "";
+  task.projectId = projVal ? projVal : null;
   task.tagIds = Array.from(document.querySelectorAll("#task-modal-tags .tag-pick.on"))
     .map(b => b.dataset.tag);
   // Commit subtasks (drop empty-title ones)
@@ -2292,6 +2419,37 @@ function renderAdmin(){
   if(data.tags.length === 0){
     tl.innerHTML = `<div class="empty"><span class="em">🔖</span>No tags yet — add one below.</div>`;
   }
+
+  // Projects
+  const pl = document.getElementById("projects-list");
+  if(pl){
+    const projects = data.projects || [];
+    if(projects.length === 0){
+      pl.innerHTML = `<div class="empty"><span class="em">📁</span>No projects yet — add one below.</div>`;
+    }else{
+      pl.innerHTML = projects.map(p => {
+        const usage = data.tasks.filter(t => t.projectId === p.id).length;
+        return `
+          <div class="admin-item" data-project="${p.id}">
+            <input type="color" data-act="set-project-color" value="${escapeHtml(p.color)}" style="width:32px; height:32px; padding:2px; border-radius:8px; cursor:pointer;" />
+            <input class="name" data-act="rename-project" value="${escapeHtml(p.name)}" />
+            <span class="kind-pill" title="${usage} task${usage === 1 ? "" : "s"}">${usage}</span>
+            <button class="icon" data-act="delete-project" title="Delete">🗑️</button>
+          </div>
+        `;
+      }).join("");
+    }
+  }
+
+  // Seed the "new tag" and "new project" color pickers with a color that isn't already used.
+  const newTagPicker = document.getElementById("new-tag-color");
+  if(newTagPicker){
+    newTagPicker.value = suggestNextColor(data.tags.map(t => t.color));
+  }
+  const newProjPicker = document.getElementById("new-project-color");
+  if(newProjPicker){
+    newProjPicker.value = suggestNextColor((data.projects || []).map(p => p.color));
+  }
 }
 
 document.getElementById("states-list").addEventListener("change", e=>{
@@ -2387,6 +2545,58 @@ document.getElementById("btn-add-tag").addEventListener("click", ()=>{
   if(!name) return;
   data.tags.push({ id: "t-" + uid(), name, color });
   document.getElementById("new-tag-name").value = "";
+  // Advance the picker to the next unused color.
+  const nextTagColor = suggestNextColor(data.tags.map(t => t.color));
+  document.getElementById("new-tag-color").value = nextTagColor;
+  save();
+  renderAll();
+});
+
+/* ---------- Projects (admin) ---------- */
+document.getElementById("projects-list").addEventListener("change", e=>{
+  const t = e.target;
+  const item = t.closest(".admin-item");
+  if(!item) return;
+  const id = item.dataset.project;
+  const proj = getProject(id);
+  if(!proj) return;
+  if(t.dataset.act === "rename-project"){
+    const v = t.value.trim();
+    if(!v){ t.value = proj.name; return; }
+    proj.name = v;
+    save();
+    renderAll();
+  }else if(t.dataset.act === "set-project-color"){
+    proj.color = t.value;
+    save();
+    renderAll();
+  }
+});
+document.getElementById("projects-list").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-act='delete-project']");
+  if(!btn) return;
+  const item = btn.closest(".admin-item");
+  const id = item.dataset.project;
+  const proj = getProject(id);
+  if(!proj) return;
+  const usage = data.tasks.filter(t => t.projectId === id).length;
+  const tail = usage > 0 ? ` (used on ${usage} task${usage === 1 ? "" : "s"}, which will lose the project)` : "";
+  if(!confirm(`Delete project “${proj.name}”${tail}?`)) return;
+  data.projects = (data.projects || []).filter(p => p.id !== id);
+  data.tasks.forEach(t => { if(t.projectId === id) t.projectId = null; });
+  save();
+  renderAll();
+});
+document.getElementById("btn-add-project").addEventListener("click", ()=>{
+  const name = document.getElementById("new-project-name").value.trim();
+  const color = document.getElementById("new-project-color").value;
+  if(!name) return;
+  if(!Array.isArray(data.projects)) data.projects = [];
+  data.projects.push({ id: "p-" + uid(), name, color });
+  document.getElementById("new-project-name").value = "";
+  // Advance the picker to the next unused color.
+  const nextProjColor = suggestNextColor((data.projects || []).map(p => p.color));
+  document.getElementById("new-project-color").value = nextProjColor;
   save();
   renderAll();
 });
