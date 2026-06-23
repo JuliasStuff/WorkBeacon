@@ -245,11 +245,17 @@
     border-color:var(--accent);
     box-shadow:0 0 0 4px rgba(226,107,168,.18), var(--shadow);
   }
-  /* Project tint on focus slots: thick top stripe in the project's color. */
-  .focus-slot.has-project::before{
-    content:""; position:absolute; top:0; left:0; right:0;
-    height:6px; border-radius:18px 18px 0 0;
-    background:var(--project-color, var(--accent));
+  /* Project tint on focus slots: the whole card takes on the project's color. */
+  .focus-slot.has-project{
+    background: color-mix(in srgb, var(--project-color, var(--accent)) 22%, var(--panel));
+    border-color: color-mix(in srgb, var(--project-color, var(--accent)) 55%, var(--line));
+  }
+  .focus-slot.has-project.running{
+    background: color-mix(in srgb, var(--project-color, var(--accent)) 32%, var(--panel));
+    border-color: var(--project-color, var(--accent));
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--project-color, var(--accent)) 25%, transparent),
+      var(--shadow);
   }
   .focus-slot .slot-num{
     position:absolute; top:10px; left:14px;
@@ -403,6 +409,76 @@
     border-radius:6px; box-shadow:0 8px 40px rgba(0,0,0,.6);
   }
   .row-attach-chip{ font-size:12px; }
+
+  /* ---------- Metrics page ---------- */
+  .metrics-toolbar{
+    display:flex; gap:6px; flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .range-pill{
+    background:var(--panel-2); border:1px solid var(--line);
+    border-radius:999px; padding:6px 14px;
+    font-size:13px; font-weight:600; color:var(--ink-soft);
+    cursor:pointer; transition:.12s;
+  }
+  .range-pill:hover{ color:var(--accent-2); border-color:var(--accent); }
+  .range-pill.active{
+    background:var(--accent); border-color:var(--accent);
+    color:#fff;
+  }
+  .metric-total{
+    font-size:34px; font-weight:800;
+    font-variant-numeric:tabular-nums;
+    color:var(--accent-2);
+    line-height:1.1;
+  }
+  .metric-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:12px;
+    margin-top:0;
+  }
+  .metric-row{
+    display:grid;
+    grid-template-columns:14px 1fr auto;
+    gap:10px; align-items:center;
+    padding:8px 0;
+    border-bottom:1px dashed var(--line);
+  }
+  .metric-row:last-child{ border-bottom:0; }
+  .metric-row .swatch-square{
+    width:14px; height:14px; border-radius:4px;
+    background:var(--bar-color, var(--accent));
+  }
+  .metric-row .label{
+    min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:13px; color:var(--ink); font-weight:600;
+  }
+  .metric-row .label .sub{
+    display:block; font-size:11px; color:var(--ink-soft);
+    font-weight:500;
+  }
+  .metric-row .ms{
+    font-variant-numeric:tabular-nums;
+    font-size:13px; font-weight:700; color:var(--accent-2);
+  }
+  .metric-bar{
+    grid-column:2 / span 2;
+    height:4px; background:var(--panel-2); border-radius:2px;
+    margin-top:2px; overflow:hidden;
+  }
+  .metric-bar > span{
+    display:block; height:100%;
+    background:var(--bar-color, var(--accent));
+    border-radius:2px;
+    transition:width .25s;
+  }
+  .metric-empty{
+    text-align:center; color:var(--ink-soft);
+    font-size:13px; padding:18px 8px;
+  }
+  @media (max-width: 800px){
+    .metric-grid{ grid-template-columns:1fr; }
+  }
 
   .task-main{ flex:1 1 auto; min-width:0; cursor:pointer; }
   .task-title-row{
@@ -679,6 +755,7 @@
   <nav class="tabs" id="tabs">
     <button data-tab="focus" class="active">✨ Focus on this</button>
     <button data-tab="working">📋 Working on now</button>
+    <button data-tab="metrics">📊 Metrics</button>
     <button data-tab="admin">⚙️ Admin</button>
   </nav>
 
@@ -703,6 +780,40 @@
     </div>
 
     <div id="working-groups"></div>
+  </section>
+
+  <!-- ===================== Metrics tab ===================== -->
+  <section id="page-metrics" class="page">
+    <div class="card">
+      <h2>📊 Time spent</h2>
+      <div class="metrics-toolbar" id="metrics-range">
+        <button class="range-pill active" data-range="today">Today</button>
+        <button class="range-pill" data-range="week">This work week</button>
+        <button class="range-pill" data-range="month">This month</button>
+        <button class="range-pill" data-range="all">All time</button>
+      </div>
+      <div class="metric-total" id="metric-total">0m</div>
+      <p style="font-size:12px; color:var(--ink-soft); margin:-4px 0 12px;">
+        Live — includes running timers.
+      </p>
+    </div>
+
+    <div class="metric-grid">
+      <div class="card">
+        <h2>📁 By project</h2>
+        <div id="metric-by-project"></div>
+      </div>
+      <div class="card">
+        <h2>✅ By task</h2>
+        <div id="metric-by-task"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p style="font-size:12px; color:var(--ink-soft); margin:0; line-height:1.55;">
+        💡 Sessions are recorded each time a timer stops. Time tracked before this feature was added isn't broken down by date — it'll only show in <strong>All time</strong>.
+      </p>
+    </div>
   </section>
 
   <!-- ===================== Admin tab ===================== -->
@@ -919,6 +1030,7 @@ const DEFAULT_DATA = {
   projects: DEFAULT_PROJECTS,
   recurrences: DEFAULT_RECURRENCES,
   tasks: [],         // { id, title, notes, stateId, projectId, tagIds[], timeSpentMs, createdAt, completedAt, attachments[], manualOrder }
+  sessions: [],      // { id, taskId, projectId, startedAt, endedAt } — one per timer stop
   focusOrder: [],    // task ids in focus, length <= MAX_FOCUS
   running: {},       // map of taskId -> startedAt (epoch ms). Multiple tasks may run simultaneously.
   paused: false,     // true when “Pause all work” is engaged
@@ -983,6 +1095,15 @@ function mergeWithDefaults(parsed){
     // Recurrences are no longer user-editable; always seed from defaults.
     recurrences: clone(DEFAULT_RECURRENCES),
     tasks:  (Array.isArray(parsed.tasks) ? parsed.tasks : []).map(t => normalizeTask(t, oldRecMap)),
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions
+      .filter(s => s && typeof s.startedAt === "number" && typeof s.endedAt === "number" && s.endedAt > s.startedAt)
+      .map(s => ({
+        id: s.id || uid(),
+        taskId: s.taskId || null,
+        projectId: s.projectId || null,
+        startedAt: s.startedAt,
+        endedAt: s.endedAt
+      })) : [],
     focusOrder: Array.isArray(parsed.focusOrder) ? parsed.focusOrder : [],
     running: normalizeRunningMap(parsed.running),
     paused: !!parsed.paused,
@@ -1399,10 +1520,23 @@ function startTimer(taskId){
 }
 function stopTimer(taskId, opts = {}){
   if(!taskId || !isTaskRunning(taskId)) return;
-  const elapsed = nowMs() - data.running[taskId];
+  const startedAt = data.running[taskId];
+  const endedAt = nowMs();
+  const elapsed = endedAt - startedAt;
   const task = getTask(taskId);
   if(task){
     task.timeSpentMs = (task.timeSpentMs || 0) + elapsed;
+  }
+  // Log a session record (skip noise < 1s).
+  if(elapsed >= 1000){
+    if(!Array.isArray(data.sessions)) data.sessions = [];
+    data.sessions.push({
+      id: uid(),
+      taskId: taskId,
+      projectId: (task && task.projectId) || null,
+      startedAt: startedAt,
+      endedAt: endedAt
+    });
   }
   delete data.running[taskId];
   if(!anyTaskRunning()) stopTick();
@@ -1612,6 +1746,11 @@ function updateLiveTimes(){
       el.textContent = fmtDuration(ms);
     });
   });
+  // Refresh metrics live only when that tab is active (cheap; avoids re-rendering hidden DOM).
+  const metricsPage = document.getElementById("page-metrics");
+  if(metricsPage && metricsPage.classList.contains("active") && anyTaskRunning()){
+    renderMetrics();
+  }
 }
 
 // Pause / Resume all
@@ -2601,6 +2740,175 @@ document.getElementById("btn-add-project").addEventListener("click", ()=>{
   renderAll();
 });
 
+/* ---------- Metrics ---------- */
+let metricsRange = "today";
+const NO_PROJECT_KEY = "__none__";
+function windowForRange(range){
+  const now = new Date();
+  let start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if(range === "week"){
+    // ISO-ish work week: Monday 00:00 → now.
+    // getDay(): 0=Sun, 1=Mon, ... 6=Sat. Shift so Monday = 0.
+    const dow = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - dow);
+  }else if(range === "month"){
+    start.setDate(1);
+  }else if(range === "all"){
+    start = new Date(0);
+  }
+  // "today" uses today 00:00 by default.
+  return { startMs: start.getTime(), endMs: now.getTime() };
+}
+function computeMetrics(startMs, endMs){
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  const byTask = new Map();       // taskId -> ms
+  const byProject = new Map();    // projectId or NO_PROJECT_KEY -> ms
+  function add(taskId, projectId, ms){
+    if(ms <= 0) return;
+    byTask.set(taskId, (byTask.get(taskId) || 0) + ms);
+    const pk = projectId || NO_PROJECT_KEY;
+    byProject.set(pk, (byProject.get(pk) || 0) + ms);
+  }
+  // Clip recorded sessions to the window
+  for(const s of sessions){
+    const lo = Math.max(s.startedAt, startMs);
+    const hi = Math.min(s.endedAt, endMs);
+    if(hi <= lo) continue;
+    // Re-resolve projectId from the task if it still exists (preserves renames),
+    // fall back to the session's snapshotted projectId.
+    const task = getTask(s.taskId);
+    const pid = (task && task.projectId) || s.projectId || null;
+    add(s.taskId, pid, hi - lo);
+  }
+  // Include currently-running portion: from data.running[tid] -> now, clipped to window
+  for(const tid of Object.keys(data.running || {})){
+    const startedAt = data.running[tid];
+    if(typeof startedAt !== "number") continue;
+    const lo = Math.max(startedAt, startMs);
+    const hi = Math.min(endMs, endMs); // endMs is now
+    if(hi <= lo) continue;
+    const task = getTask(tid);
+    const pid = task ? task.projectId : null;
+    add(tid, pid, hi - lo);
+  }
+  // All-time range: any task with timeSpentMs that we don't have full session coverage for
+  // would be undercounted. To keep "All time" honest, fall back to task.timeSpentMs when
+  // it exceeds the summed session time for that task.
+  if(startMs <= 0){
+    for(const t of data.tasks){
+      const tracked = byTask.get(t.id) || 0;
+      const total = t.timeSpentMs || 0;
+      if(total > tracked){
+        const diff = total - tracked;
+        byTask.set(t.id, total);
+        const pk = t.projectId || NO_PROJECT_KEY;
+        byProject.set(pk, (byProject.get(pk) || 0) + diff);
+      }
+    }
+  }
+  let totalMs = 0;
+  byTask.forEach(v => { totalMs += v; });
+  // Build sorted output
+  const taskRows = [];
+  byTask.forEach((ms, taskId) => {
+    const t = getTask(taskId);
+    taskRows.push({
+      taskId,
+      title: t ? t.title : "(deleted task)",
+      projectId: t ? t.projectId : null,
+      ms
+    });
+  });
+  taskRows.sort((a, b) => b.ms - a.ms);
+  const projectRows = [];
+  byProject.forEach((ms, pk) => {
+    if(pk === NO_PROJECT_KEY){
+      projectRows.push({ projectId: null, name: "(No project)", color: "#bdbdbd", ms });
+    }else{
+      const p = getProject(pk);
+      projectRows.push({
+        projectId: pk,
+        name: p ? p.name : "(deleted project)",
+        color: p ? p.color : "#bdbdbd",
+        ms
+      });
+    }
+  });
+  projectRows.sort((a, b) => b.ms - a.ms);
+  return { totalMs, byProject: projectRows, byTask: taskRows };
+}
+function fmtMetricDuration(ms){
+  const totalMin = Math.floor(ms / 60000);
+  if(totalMin === 0){
+    const sec = Math.floor(ms / 1000);
+    return sec + "s";
+  }
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if(h === 0) return m + "m";
+  return h + "h " + (m < 10 ? "0" : "") + m + "m";
+}
+function renderMetrics(){
+  const totalEl = document.getElementById("metric-total");
+  if(!totalEl) return;
+  // Sync range pills
+  document.querySelectorAll("#metrics-range .range-pill").forEach(b => {
+    b.classList.toggle("active", b.dataset.range === metricsRange);
+  });
+  const { startMs, endMs } = windowForRange(metricsRange);
+  const m = computeMetrics(startMs, endMs);
+  totalEl.textContent = fmtMetricDuration(m.totalMs);
+  const projEl = document.getElementById("metric-by-project");
+  const taskEl = document.getElementById("metric-by-task");
+  const maxProj = m.byProject.reduce((mx, r) => Math.max(mx, r.ms), 0) || 1;
+  const maxTask = m.byTask.reduce((mx, r) => Math.max(mx, r.ms), 0) || 1;
+  if(!m.byProject.length){
+    projEl.innerHTML = `<div class="metric-empty">No time tracked in this range yet.</div>`;
+  }else{
+    projEl.innerHTML = m.byProject.map(r => {
+      const pct = Math.max(2, Math.round(100 * r.ms / maxProj));
+      return `
+        <div class="metric-row" style="--bar-color:${escapeHtml(r.color)};">
+          <span class="swatch-square"></span>
+          <span class="label">${escapeHtml(r.name)}</span>
+          <span class="ms">${fmtMetricDuration(r.ms)}</span>
+          <div class="metric-bar"><span style="width:${pct}%;"></span></div>
+        </div>
+      `;
+    }).join("");
+  }
+  if(!m.byTask.length){
+    taskEl.innerHTML = `<div class="metric-empty">No time tracked in this range yet.</div>`;
+  }else{
+    // Show top 25 tasks to keep the list manageable
+    const top = m.byTask.slice(0, 25);
+    taskEl.innerHTML = top.map(r => {
+      const proj = r.projectId ? getProject(r.projectId) : null;
+      const color = proj ? proj.color : "#bdbdbd";
+      const projSub = proj ? `<span class="sub">📁 ${escapeHtml(proj.name)}</span>` : "";
+      const pct = Math.max(2, Math.round(100 * r.ms / maxTask));
+      return `
+        <div class="metric-row" style="--bar-color:${escapeHtml(color)};">
+          <span class="swatch-square"></span>
+          <span class="label">${escapeHtml(r.title)}${projSub}</span>
+          <span class="ms">${fmtMetricDuration(r.ms)}</span>
+          <div class="metric-bar"><span style="width:${pct}%;"></span></div>
+        </div>
+      `;
+    }).join("");
+    if(m.byTask.length > 25){
+      taskEl.innerHTML += `<div class="metric-empty">+ ${m.byTask.length - 25} more</div>`;
+    }
+  }
+}
+document.getElementById("metrics-range").addEventListener("click", e => {
+  const btn = e.target.closest(".range-pill");
+  if(!btn) return;
+  metricsRange = btn.dataset.range || "today";
+  renderMetrics();
+});
+
 /* ---------- Data export / import / wipe ---------- */
 document.getElementById("btn-export").addEventListener("click", ()=>{
   const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
@@ -2644,6 +2952,7 @@ document.getElementById("btn-wipe").addEventListener("click", ()=>{
 function renderAll(){
   renderFocus();
   renderWorking();
+  renderMetrics();
   renderAdmin();
 }
 
