@@ -1,0 +1,2049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>WorkFocus</title>
+<meta name="theme-color" content="#e26ba8" />
+<meta name="description" content="A happy little focus tracker — pick 1-3 things to focus on, run a timer, and keep the rest organized." />
+
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="WorkFocus" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="application-name" content="WorkFocus" />
+
+<style>
+  :root{
+    --bg:#fff8e1;
+    --panel:#ffffff;
+    --panel-2:#fdf1d2;
+    --ink:#4a1f33;
+    --ink-soft:#8a5470;
+    --line:#ecd6b0;
+    --accent:#e26ba8;
+    --accent-2:#c44d8a;
+    --accent-soft:#ffd6e7;
+    --warm:#ff9eba;
+    --warm-soft:#ffe1ec;
+    --pop:#ffb627;
+    --good:#52b788;
+    --bad:#d94a6a;
+    --shadow:0 4px 14px rgba(170,120,40,.12);
+
+    --kind-active:#e26ba8;
+    --kind-something:#c98a4b;
+    --kind-someone:#9069d4;
+    --kind-future:#5fb3d9;
+    --kind-done:#52b788;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; min-height:100%;
+    background:
+      radial-gradient(900px 500px at 90% -10%, rgba(255,190,80,.22), transparent 60%),
+      radial-gradient(700px 400px at -10% 110%, rgba(226,107,168,.15), transparent 60%),
+      radial-gradient(600px 360px at 50% 50%, rgba(255,236,180,.30), transparent 70%),
+      var(--bg);
+    color:var(--ink);
+    font-family:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  .app{ max-width:1100px; margin:0 auto; padding:16px; padding-bottom:env(safe-area-inset-bottom); }
+
+  /* Top bar */
+  header.topbar{
+    display:flex; align-items:center; gap:14px;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:12px 18px; box-shadow:var(--shadow);
+    margin-bottom:14px;
+  }
+  header.topbar .crest{
+    width:54px; height:54px; border-radius:14px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    box-shadow:inset 0 -3px 0 rgba(0,0,0,.12);
+    flex-shrink:0;
+  }
+  header.topbar .crest svg{ width:32px; height:32px; display:block; }
+  header.topbar h1{
+    margin:0; font-size:clamp(1.3rem,2.4vw,1.8rem); line-height:1.1;
+  }
+  header.topbar p.sub{
+    margin:2px 0 0; font-size:13px; color:var(--ink-soft);
+  }
+
+  .save-pill{
+    margin-left:auto; display:flex; align-items:center; gap:8px;
+    font-size:13px; color:var(--ink-soft);
+  }
+  .save-dot{
+    width:10px; height:10px; border-radius:50%;
+    background:var(--good); display:inline-block;
+    box-shadow:0 0 0 2px rgba(255,255,255,.6);
+    transition:background .25s;
+  }
+  .save-dot.saving{ background:var(--pop); animation:pulse 1s infinite; }
+  .save-dot.error { background:var(--bad); }
+  @keyframes pulse{
+    0%,100%{ opacity:1; transform:scale(1); }
+    50%    { opacity:.55; transform:scale(.85); }
+  }
+
+  /* Tabs */
+  nav.tabs{
+    display:flex; gap:6px; flex-wrap:wrap;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:6px; box-shadow:var(--shadow);
+    margin-bottom:14px;
+  }
+  nav.tabs button{
+    flex:1 1 auto; min-width:140px;
+    padding:10px 14px; border:1px solid transparent; cursor:pointer;
+    background:transparent; color:var(--ink);
+    border-radius:10px; font-weight:600; font-size:14px;
+    transition:.15s; font-family:inherit;
+  }
+  nav.tabs button:hover{ background:var(--accent-soft); }
+  nav.tabs button.active{
+    color:#fff;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    border-color:var(--accent-2);
+    box-shadow:0 4px 12px rgba(196,77,138,.32);
+  }
+
+  .page{ display:none; }
+  .page.active{ display:block; }
+
+  /* Cards */
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px; padding:16px; box-shadow:var(--shadow);
+    margin-bottom:14px;
+  }
+  .card h2{
+    margin:0 0 12px; font-size:18px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card h2 .count{
+    font-size:12px; background:var(--accent-soft); color:var(--accent-2);
+    padding:2px 8px; border-radius:999px; font-weight:700;
+  }
+
+  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+  /* Inputs */
+  input[type=text], input[type=color], input[type=number], select, textarea{
+    background:#fff; color:var(--ink);
+    border:1px solid var(--line); border-radius:10px;
+    padding:8px 10px; font-size:14px; outline:none;
+    font-family:inherit;
+  }
+  input:focus, select:focus, textarea:focus{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(226,107,168,.22);
+  }
+  textarea{ resize:vertical; min-height:80px; }
+
+  /* Buttons */
+  button.btn{
+    border:0; border-radius:10px; padding:9px 14px;
+    cursor:pointer; font-weight:600; font-size:14px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    color:#fff; box-shadow:inset 0 -2px 0 rgba(0,0,0,.12);
+    font-family:inherit;
+  }
+  button.btn:hover{ filter:brightness(1.05); }
+  button.btn.ghost{
+    background:var(--panel-2); color:var(--ink);
+    box-shadow:inset 0 -2px 0 rgba(0,0,0,.04);
+  }
+  button.btn.warm{
+    background:linear-gradient(135deg,var(--warm),#ff7ea2);
+    color:#fff;
+  }
+  button.btn.danger{
+    background:linear-gradient(135deg,var(--bad),#a83555);
+    color:#fff;
+  }
+  button.btn.success{
+    background:linear-gradient(135deg,var(--good),#3f9b6f);
+    color:#fff;
+  }
+  button.icon{
+    background:transparent; border:0; cursor:pointer;
+    color:var(--ink-soft); font-size:15px; padding:4px 7px;
+    border-radius:6px; font-family:inherit;
+  }
+  button.icon:hover{ background:var(--panel-2); color:var(--ink); }
+
+  /* Chips */
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--panel-2); border:1px solid var(--line);
+    padding:3px 9px; border-radius:999px; font-size:12px;
+    font-weight:600;
+  }
+  .chip .swatch{
+    width:8px; height:8px; border-radius:50%; background:var(--accent);
+  }
+
+  .empty{
+    text-align:center; color:var(--ink-soft);
+    padding:18px; font-size:14px;
+    background:var(--panel-2); border:1px dashed var(--line);
+    border-radius:12px;
+  }
+  .empty .em{ font-size:24px; display:block; margin-bottom:4px; }
+
+  /* ---------- Focus tab ---------- */
+  .focus-grid{
+    display:grid; grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:14px;
+  }
+  .focus-slot{
+    background:var(--panel);
+    border:2px solid var(--line);
+    border-radius:18px; padding:18px;
+    box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:12px;
+    min-height:260px;
+    position:relative;
+    transition:border-color .2s, box-shadow .2s;
+  }
+  .focus-slot.empty-slot{
+    border-style:dashed; background:var(--panel-2);
+    align-items:center; justify-content:center; text-align:center;
+    color:var(--ink-soft); font-size:14px;
+  }
+  .focus-slot.running{
+    border-color:var(--accent);
+    box-shadow:0 0 0 4px rgba(226,107,168,.18), var(--shadow);
+  }
+  .focus-slot .slot-num{
+    position:absolute; top:10px; left:14px;
+    font-size:11px; font-weight:700; letter-spacing:.08em;
+    color:var(--accent-2); text-transform:uppercase;
+    background:var(--accent-soft); padding:2px 8px; border-radius:999px;
+  }
+  .focus-slot .task-title{
+    font-size:18px; font-weight:700; margin:18px 0 0;
+    line-height:1.3; color:var(--ink);
+    cursor:pointer;
+  }
+  .focus-slot .task-title:hover{ color:var(--accent-2); }
+  .focus-slot .task-tags{
+    display:flex; flex-wrap:wrap; gap:5px;
+  }
+  .focus-slot .timer-display{
+    font-size:32px; font-weight:800;
+    font-variant-numeric:tabular-nums;
+    color:var(--accent-2);
+    text-align:center; padding:6px 0;
+    background:var(--accent-soft);
+    border-radius:12px;
+    letter-spacing:.04em;
+  }
+  .focus-slot.running .timer-display{
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    color:#fff;
+  }
+  .focus-slot .slot-actions{
+    display:flex; gap:6px; margin-top:auto; flex-wrap:wrap;
+  }
+  .focus-slot .slot-actions .btn{ flex:1 1 auto; }
+  .focus-slot .reorder{
+    position:absolute; top:10px; right:14px;
+    display:flex; gap:2px;
+  }
+  .focus-slot .reorder button{
+    background:transparent; border:0; color:var(--ink-soft);
+    cursor:pointer; padding:2px 5px; border-radius:6px;
+    font-size:12px;
+  }
+  .focus-slot .reorder button:hover{ background:var(--panel-2); color:var(--ink); }
+  .focus-tip{
+    text-align:center; color:var(--ink-soft); font-size:13px;
+    margin-top:8px; font-style:italic;
+  }
+
+  /* ---------- Working On tab ---------- */
+  .new-task-bar{
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+  }
+  .new-task-bar input[type=text]{ flex:1 1 240px; min-width:180px; }
+
+  .task-list{
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .task-row{
+    display:flex; align-items:flex-start; gap:10px;
+    background:#fff; border:1px solid var(--line);
+    border-left:4px solid var(--accent);
+    border-radius:12px; padding:10px 12px;
+    transition:.15s;
+  }
+  .task-row:hover{ box-shadow:0 2px 8px rgba(170,40,90,.10); }
+  .task-row.focused{
+    background:linear-gradient(90deg,var(--accent-soft),#fff 40%);
+    border-color:var(--accent);
+  }
+  .task-row.kind-something{ border-left-color:var(--kind-something); }
+  .task-row.kind-someone  { border-left-color:var(--kind-someone); }
+  .task-row.kind-future   { border-left-color:var(--kind-future); }
+  .task-row.kind-done     { border-left-color:var(--kind-done); opacity:.72; }
+
+  /* Drag-and-drop between kind groups */
+  .task-row[draggable="true"]{ cursor:grab; }
+  .task-row[draggable="true"]:active{ cursor:grabbing; }
+  .task-row.dragging{ opacity:.4; }
+  .card.drop-target{
+    outline:2px dashed var(--accent);
+    outline-offset:-6px;
+    background:linear-gradient(180deg, var(--accent-soft), var(--panel) 60%);
+  }
+
+  .task-main{ flex:1 1 auto; min-width:0; cursor:pointer; }
+  .task-title-row{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .task-title-row .title{
+    font-weight:600; font-size:15px; cursor:pointer; color:var(--ink);
+  }
+  .task-title-row .title:hover{ color:var(--accent-2); }
+  .task-row.kind-done .title{ text-decoration:line-through; color:var(--ink-soft); }
+  .task-meta{
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    margin-top:5px; font-size:12px; color:var(--ink-soft);
+  }
+  .task-meta .time{
+    font-variant-numeric:tabular-nums; font-weight:600;
+    color:var(--accent-2);
+  }
+  .task-meta .time.running::before{
+    content:"⏱ "; color:var(--accent);
+  }
+  .task-actions{
+    display:flex; gap:4px; flex-shrink:0; flex-wrap:wrap;
+    align-items:center;
+  }
+  .task-actions select{
+    font-size:12px; padding:4px 6px;
+  }
+
+  .star-btn{
+    background:transparent; border:0; cursor:pointer;
+    font-size:18px; padding:2px 4px; line-height:1;
+    color:var(--ink-soft); transition:transform .15s;
+  }
+  .star-btn:hover{ transform:scale(1.2); }
+  .star-btn.on{ color:var(--pop); }
+
+  /* Pause / resume all */
+  .focus-toolbar{
+    display:flex; justify-content:center;
+    margin-bottom:12px;
+  }
+  .btn.pause-btn{
+    padding:10px 22px; font-size:15px; font-weight:600;
+    border-radius:999px;
+    background:linear-gradient(180deg, var(--accent), var(--accent-2));
+  }
+  .btn.pause-btn.is-paused{
+    background:linear-gradient(180deg, var(--good), #3f8e63);
+  }
+  body.is-paused .focus-slot{ opacity:.78; }
+  body.is-paused .focus-slot.running{ opacity:1; }
+
+  /* ---------- Admin tab ---------- */
+  .admin-grid{
+    display:grid; grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:14px;
+  }
+  .admin-list{
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .admin-item{
+    display:flex; align-items:center; gap:8px;
+    background:#fff; border:1px solid var(--line);
+    border-radius:10px; padding:8px 10px;
+  }
+  .admin-item .swatch{
+    width:22px; height:22px; border-radius:6px; flex-shrink:0;
+    border:1px solid rgba(0,0,0,.1);
+  }
+  .admin-item .name{
+    flex:1 1 auto; font-weight:600; font-size:14px;
+    background:transparent; border:0; padding:4px 6px;
+    border-radius:6px; color:var(--ink); font-family:inherit;
+    min-width:0;
+  }
+  .admin-item .name:focus{
+    background:var(--accent-soft); outline:none;
+  }
+  .admin-item .kind-pill{
+    font-size:11px; padding:2px 8px; border-radius:999px;
+    background:var(--panel-2); color:var(--ink-soft);
+    font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+  }
+  .admin-item.builtin .name{ color:var(--ink-soft); }
+  .admin-add{
+    display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;
+  }
+  .admin-add input[type=text]{ flex:1 1 140px; min-width:120px; }
+
+  /* ---------- Modal ---------- */
+  .modal-bg{
+    position:fixed; inset:0; background:rgba(74,31,51,.45);
+    display:none; align-items:flex-start; justify-content:center;
+    padding:24px 16px; z-index:100;
+    overflow-y:auto;
+  }
+  .modal-bg.open{ display:flex; }
+  .modal{
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:20px; width:100%; max-width:520px;
+    box-shadow:0 20px 60px rgba(74,31,51,.30);
+    margin:auto 0;
+  }
+  .modal h3{ margin:0 0 4px; font-size:20px; }
+  .modal .modal-sub{ margin:0 0 14px; color:var(--ink-soft); font-size:13px; }
+  .modal-actions{
+    display:flex; gap:8px; justify-content:flex-end; margin-top:18px;
+    flex-wrap:wrap;
+  }
+  .modal label.field-lbl{
+    display:block; font-size:12px; color:var(--ink-soft);
+    margin:12px 0 4px; font-weight:700; letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+  .modal input[type=text], .modal textarea, .modal select{
+    width:100%;
+  }
+  .tag-picker{
+    display:flex; flex-wrap:wrap; gap:6px;
+    background:var(--panel-2); border:1px solid var(--line);
+    border-radius:10px; padding:8px;
+    min-height:44px;
+  }
+  .tag-pick{
+    display:inline-flex; align-items:center; gap:6px;
+    background:#fff; border:1px solid var(--line);
+    padding:4px 10px; border-radius:999px;
+    font-size:12px; font-weight:600; cursor:pointer;
+    color:var(--ink-soft);
+  }
+  .tag-pick .swatch{
+    width:8px; height:8px; border-radius:50%;
+  }
+  .tag-pick.on{
+    background:var(--accent-soft); color:var(--accent-2);
+    border-color:var(--accent);
+  }
+
+  /* ---------- Subtasks ---------- */
+  .subtask-list{
+    display:flex; flex-direction:column; gap:4px;
+    margin-top:4px;
+  }
+  .subtask-item{
+    display:flex; align-items:center; gap:8px;
+    background:#fff; border:1px solid var(--line);
+    border-radius:8px; padding:5px 8px;
+  }
+  .subtask-item input[type=checkbox]{
+    width:16px; height:16px; accent-color:var(--accent); cursor:pointer;
+    flex-shrink:0;
+  }
+  .subtask-item .sub-title{
+    flex:1 1 auto; min-width:0;
+    background:transparent; border:0; padding:4px 4px;
+    border-radius:4px; color:var(--ink); font-family:inherit;
+    font-size:14px;
+  }
+  .subtask-item .sub-title:focus{
+    background:var(--accent-soft); outline:none;
+  }
+  .subtask-item.done .sub-title{
+    text-decoration:line-through; color:var(--ink-soft);
+  }
+  .subtask-add{
+    display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;
+  }
+  .subtask-add input[type=text]{ flex:1 1 160px; min-width:120px; }
+
+  .focus-subtasks{
+    display:flex; flex-direction:column; gap:3px;
+    background:var(--accent-soft);
+    border-radius:10px; padding:8px 10px;
+  }
+  .focus-sub{
+    display:flex; align-items:center; gap:8px;
+    font-size:13px; color:var(--ink); cursor:pointer;
+    padding:2px 0;
+  }
+  .focus-sub input[type=checkbox]{
+    width:16px; height:16px; accent-color:var(--accent-2); cursor:pointer;
+    flex-shrink:0;
+  }
+  .focus-sub.done span{
+    text-decoration:line-through; color:var(--ink-soft);
+  }
+  .focus-subtasks .more{
+    font-size:11px; color:var(--ink-soft); margin-top:2px;
+  }
+
+  .chip.progress-chip{
+    background:var(--accent-soft); color:var(--accent-2);
+    border-color:var(--accent);
+  }
+  .chip.recur-chip{
+    background:var(--warm-soft); color:#a83555;
+    border-color:var(--warm);
+  }
+  .chip.followup-chip{
+    background:var(--panel-2); color:var(--ink-soft);
+    border-color:var(--line);
+  }
+  .chip.followup-chip.overdue{
+    background:#ffe0e6; color:var(--bad); border-color:var(--bad);
+    font-weight:700;
+  }
+  .chip.followup-chip.today{
+    background:#fff1c4; color:#8a5a00; border-color:var(--pop);
+    font-weight:700;
+  }
+  .chip.followup-chip.soon{
+    background:#fce4ee; color:var(--accent-2); border-color:var(--accent);
+  }
+  .recur-hint{
+    font-size:12px; color:var(--ink-soft); margin-top:4px;
+  }
+  .stat-line{
+    display:flex; justify-content:space-between; gap:8px;
+    font-size:13px; color:var(--ink-soft);
+    background:var(--panel-2); border-radius:8px;
+    padding:8px 10px; margin-top:6px;
+  }
+  .stat-line strong{ color:var(--ink); }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width:780px){
+    .app{ padding:10px; }
+    .focus-grid{ grid-template-columns:1fr; }
+    .admin-grid{ grid-template-columns:1fr; }
+    header.topbar{ padding:10px 12px; gap:10px; flex-wrap:wrap; }
+    header.topbar .crest{ width:44px; height:44px; }
+    header.topbar .crest svg{ width:26px; height:26px; }
+    header.topbar h1{ font-size:1.2rem; }
+    .save-pill{ font-size:12px; }
+    nav.tabs button{ min-width:0; padding:8px 10px; font-size:13px; }
+    .task-row{ flex-direction:column; gap:8px; }
+    .task-actions{ width:100%; justify-content:space-between; }
+    input[type=text], input[type=color], input[type=number], select, textarea{
+      font-size:16px;
+    }
+  }
+  @media (max-width:430px){
+    nav.tabs button{ font-size:12px; padding:8px 6px; }
+    .focus-slot .timer-display{ font-size:28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="crest" aria-label="WorkFocus logo">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- Stopwatch: stem button, top crowns, body, hands, center dot -->
+        <rect x="27" y="6" width="10" height="6" rx="2" fill="#ffffff"/>
+        <rect x="24" y="3" width="16" height="4" rx="2" fill="#ffffff"/>
+        <line x1="49" y1="14" x2="55" y2="10" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="32" cy="38" r="20" fill="#ffffff"/>
+        <line x1="32" y1="38" x2="32" y2="24" stroke="#c44d8a" stroke-width="3" stroke-linecap="round"/>
+        <line x1="32" y1="38" x2="43" y2="32" stroke="#c44d8a" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="32" cy="38" r="2.5" fill="#c44d8a"/>
+      </svg>
+    </div>
+    <div>
+      <h1>WorkFocus</h1>
+      <p class="sub">Pick 1–3 things. Run the timer. Ship it. ⚡</p>
+    </div>
+    <div class="save-pill">
+      <span id="save-dot" class="save-dot" aria-hidden="true"></span>
+      <span id="save-status">Saved</span>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="focus" class="active">✨ Focus on this</button>
+    <button data-tab="working">📋 Working on now</button>
+    <button data-tab="admin">⚙️ Admin</button>
+  </nav>
+
+  <!-- ===================== Focus tab ===================== -->
+  <section id="page-focus" class="page active">
+    <div class="focus-toolbar">
+      <button class="btn pause-btn" id="btn-pause-all">⏸ Pause all work</button>
+    </div>
+    <div id="focus-grid" class="focus-grid"></div>
+    <p class="focus-tip">Star a task in <strong>Working on now</strong> to add it here (max 3).</p>
+  </section>
+
+  <!-- ===================== Working On tab ===================== -->
+  <section id="page-working" class="page">
+    <div class="card">
+      <h2>➕ Add a new task</h2>
+      <div class="new-task-bar">
+        <input id="new-task-title" type="text" placeholder="What needs doing?" />
+        <select id="new-task-state"></select>
+        <button class="btn" id="btn-add-task">Add</button>
+      </div>
+    </div>
+
+    <div id="working-groups"></div>
+  </section>
+
+  <!-- ===================== Admin tab ===================== -->
+  <section id="page-admin" class="page">
+    <div class="admin-grid">
+      <div class="card">
+        <h2>🧩 States</h2>
+        <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 10px;">
+          Every state belongs to a “kind” that decides which section it shows up in on the <strong>Working on now</strong> tab.
+        </p>
+        <div id="states-list" class="admin-list"></div>
+        <div class="admin-add">
+          <input id="new-state-name" type="text" placeholder="New state name" />
+          <select id="new-state-kind">
+            <option value="active">Active</option>
+            <option value="waiting-something">Waiting on something</option>
+            <option value="waiting-someone">Waiting on someone</option>
+            <option value="future">Remember in the future</option>
+            <option value="done">Done</option>
+          </select>
+          <button class="btn" id="btn-add-state">Add state</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>🔖 Tags</h2>
+        <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 10px;">
+          Tags are little colored chips you can stick on any task.
+        </p>
+        <div id="tags-list" class="admin-list"></div>
+        <div class="admin-add">
+          <input id="new-tag-name" type="text" placeholder="New tag name" />
+          <input id="new-tag-color" type="color" value="#e26ba8" style="width:48px; padding:2px; height:36px;" />
+          <button class="btn" id="btn-add-tag">Add tag</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>💾 Data</h2>
+      <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 10px;">
+        Everything lives in your browser. Use these to back up or move between machines.
+      </p>
+      <div class="row">
+        <button class="btn ghost" id="btn-export">📤 Export JSON</button>
+        <button class="btn ghost" id="btn-import">📥 Import JSON</button>
+        <input id="import-file" type="file" accept="application/json" style="display:none;" />
+        <button class="btn danger" id="btn-wipe">🗑️ Wipe all data</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===================== Task modal ===================== -->
+<div class="modal-bg" id="task-modal-bg" aria-hidden="true">
+  <div class="modal">
+    <h3 id="task-modal-title">Edit task</h3>
+    <p class="modal-sub" id="task-modal-sub">Update the details below.</p>
+
+    <label class="field-lbl">Title</label>
+    <input id="task-modal-title-input" type="text" placeholder="Task title" />
+
+    <label class="field-lbl">Notes</label>
+    <textarea id="task-modal-notes" rows="4" placeholder="Anything you want to remember…"></textarea>
+
+    <label class="field-lbl">State</label>
+    <select id="task-modal-state"></select>
+
+    <label class="field-lbl">Tags</label>
+    <div id="task-modal-tags" class="tag-picker"></div>
+
+    <label class="field-lbl">Subtasks</label>
+    <div id="task-modal-subtasks" class="subtask-list"></div>
+    <div class="subtask-add">
+      <input id="task-modal-subtask-new" type="text" placeholder="Add a subtask…" />
+      <button class="btn ghost" id="task-modal-subtask-add">Add</button>
+    </div>
+
+    <label class="field-lbl">Recurrence</label>
+    <select id="task-modal-recurrence">
+      <option value="">One-off — no recurrence</option>
+    </select>
+    <div id="task-modal-recurrence-hint" class="recur-hint"></div>
+
+    <label class="field-lbl">Follow up on</label>
+    <div class="row" style="gap:6px;">
+      <input id="task-modal-followup" type="date" style="flex:1 1 auto;" />
+      <button type="button" class="btn ghost" id="task-modal-followup-clear" style="padding:6px 12px; font-size:12px;">Clear</button>
+    </div>
+    <div class="recur-hint">Pick a date to remind yourself to come back to this task.</div>
+
+    <label class="field-lbl">Time spent</label>
+    <div class="stat-line">
+      <span>Total: <strong id="task-modal-time">0m</strong></span>
+      <span>
+        <button class="btn ghost" id="task-modal-reset-time" style="padding:4px 10px; font-size:12px;">Reset to 0</button>
+      </span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn danger" id="task-modal-delete" style="margin-right:auto;">Delete</button>
+      <button class="btn ghost" id="task-modal-cancel">Cancel</button>
+      <button class="btn" id="task-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+/* =========================================================
+   WorkFocus — single-file PWA
+   - localStorage data
+   - 3 tabs: Focus / Working on now / Admin
+   - One running timer at a time, ticking every second
+   ========================================================= */
+
+const STORAGE_KEY = "workfocus-v1";
+const MAX_FOCUS = 3;
+
+const KINDS = [
+  { id:"active",            label:"Active",                  emoji:"⚡" },
+  { id:"waiting-something", label:"Waiting on something",    emoji:"⏳" },
+  { id:"waiting-someone",   label:"Waiting on someone",      emoji:"💬" },
+  { id:"future",            label:"Remember in the future",  emoji:"📌" },
+  { id:"done",              label:"Done",                    emoji:"✅" }
+];
+
+const DEFAULT_STATES = [
+  { id:"s-active",    name:"Active",                  kind:"active",            builtin:true  },
+  { id:"s-something", name:"Waiting on something",    kind:"waiting-something", builtin:true  },
+  { id:"s-someone",   name:"Waiting on someone",      kind:"waiting-someone",   builtin:true  },
+  { id:"s-future",    name:"Remember in the future",  kind:"future",            builtin:true  },
+  { id:"s-done",      name:"Done",                    kind:"done",              builtin:true  }
+];
+
+const DEFAULT_TAGS = [
+  { id:"t-urgent", name:"urgent",  color:"#d94a6a" },
+  { id:"t-quick",  name:"quick",   color:"#52b788" },
+  { id:"t-deep",   name:"deep",    color:"#9069d4" },
+  { id:"t-admin",  name:"admin",   color:"#5fb3d9" }
+];
+
+const DEFAULT_RECURRENCES = [
+  { id:"r-weekday", name:"Every weekday morning", type:"weekday", builtin:true },
+  { id:"r-week",    name:"Every week",            type:"week",    builtin:true },
+  { id:"r-mon",     name:"Every Monday",          type:"mon",     builtin:true },
+  { id:"r-tue",     name:"Every Tuesday",         type:"tue",     builtin:true },
+  { id:"r-wed",     name:"Every Wednesday",       type:"wed",     builtin:true },
+  { id:"r-thu",     name:"Every Thursday",        type:"thu",     builtin:true },
+  { id:"r-fri",     name:"Every Friday",          type:"fri",     builtin:true }
+];
+
+const RECURRENCE_TYPES = [
+  { id:"weekday", label:"Every weekday morning", hint:"Resets every weekday morning around 5\u00a0am." },
+  { id:"week",    label:"Every week",            hint:"Resets one week after each completion." },
+  { id:"mon",     label:"Every Monday",          hint:"Resets every Monday morning around 5\u00a0am.",    dow:1 },
+  { id:"tue",     label:"Every Tuesday",         hint:"Resets every Tuesday morning around 5\u00a0am.",   dow:2 },
+  { id:"wed",     label:"Every Wednesday",       hint:"Resets every Wednesday morning around 5\u00a0am.", dow:3 },
+  { id:"thu",     label:"Every Thursday",        hint:"Resets every Thursday morning around 5\u00a0am.",  dow:4 },
+  { id:"fri",     label:"Every Friday",          hint:"Resets every Friday morning around 5\u00a0am.",    dow:5 }
+];
+
+const DEFAULT_DATA = {
+  states: DEFAULT_STATES,
+  tags: DEFAULT_TAGS,
+  recurrences: DEFAULT_RECURRENCES,
+  tasks: [],         // { id, title, notes, stateId, tagIds[], timeSpentMs, createdAt, completedAt }
+  focusOrder: [],    // task ids in focus, length <= MAX_FOCUS
+  running: null,     // { taskId, since (epoch ms) } or null
+  paused: false,     // true when “Pause all work” is engaged
+  pausedFromTaskId: null  // task id that was running when paused, so Resume can restart it
+};
+
+/* ---------- Storage ---------- */
+let data = load();
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return clone(DEFAULT_DATA);
+    const parsed = JSON.parse(raw);
+    return mergeWithDefaults(parsed);
+  }catch(e){
+    console.warn("Failed to load, resetting", e);
+    return clone(DEFAULT_DATA);
+  }
+}
+function mergeWithDefaults(parsed){
+  // Build map from any persisted (custom) recurrence ids -> their type, so we can
+  // remap tasks onto the new fixed-default recurrence list after admin control was removed.
+  const oldRecMap = {};
+  if(Array.isArray(parsed.recurrences)){
+    parsed.recurrences.forEach(r => {
+      if(r && r.id && r.type) oldRecMap[r.id] = r.type;
+    });
+  }
+  return {
+    ...clone(DEFAULT_DATA),
+    ...parsed,
+    states: Array.isArray(parsed.states) && parsed.states.length ? parsed.states : clone(DEFAULT_STATES),
+    tags:   Array.isArray(parsed.tags)   ? parsed.tags   : clone(DEFAULT_TAGS),
+    // Recurrences are no longer user-editable; always seed from defaults.
+    recurrences: clone(DEFAULT_RECURRENCES),
+    tasks:  (Array.isArray(parsed.tasks) ? parsed.tasks : []).map(t => normalizeTask(t, oldRecMap)),
+    focusOrder: Array.isArray(parsed.focusOrder) ? parsed.focusOrder : [],
+    running: parsed.running || null,
+    paused: !!parsed.paused,
+    pausedFromTaskId: (typeof parsed.pausedFromTaskId === "string" && parsed.pausedFromTaskId) ? parsed.pausedFromTaskId : null
+  };
+}
+const RECURRENCE_TYPE_TO_DEFAULT_ID = {
+  weekday: "r-weekday",
+  week:    "r-week",
+  mon:     "r-mon",
+  tue:     "r-tue",
+  wed:     "r-wed",
+  thu:     "r-thu",
+  fri:     "r-fri"
+  // Note: “day” (every morning), “sat” and “sun” are intentionally NOT mapped
+  //       — tasks using those recurrences become one-offs after this migration.
+};
+const VALID_RECURRENCE_IDS = new Set(Object.values(RECURRENCE_TYPE_TO_DEFAULT_ID));
+
+function normalizeTask(t, oldRecMap){
+  // Legacy migration #1: bare type strings from very early versions
+  let rec = t.recurrence;
+  if(rec === "day")          rec = null;          // removed
+  else if(rec === "weekday") rec = "r-weekday";
+  else if(rec === "week")    rec = "r-week";
+  // Legacy migration #2: custom recurrence ids that no longer exist
+  if(typeof rec === "string" && rec && !VALID_RECURRENCE_IDS.has(rec) && oldRecMap && oldRecMap[rec]){
+    rec = RECURRENCE_TYPE_TO_DEFAULT_ID[oldRecMap[rec]] || null;
+  }
+  // Final validation
+  if(typeof rec !== "string" || !VALID_RECURRENCE_IDS.has(rec)) rec = null;
+  return {
+    id:          t.id || uid(),
+    title:       t.title || "",
+    notes:       t.notes || "",
+    stateId:     t.stateId,
+    tagIds:      Array.isArray(t.tagIds) ? t.tagIds : [],
+    timeSpentMs: t.timeSpentMs || 0,
+    createdAt:   t.createdAt || nowMs(),
+    completedAt: t.completedAt || null,
+    subtasks:    Array.isArray(t.subtasks) ? t.subtasks.map(s => ({
+      id:    s.id || uid(),
+      title: s.title || "",
+      done:  !!s.done
+    })) : [],
+    recurrence:   rec,
+    nextResetAt:  t.nextResetAt || null,
+    followUpDate: (typeof t.followUpDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.followUpDate)) ? t.followUpDate : null
+  };
+}
+function save(){
+  flashSaving();
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    setSaved();
+  }catch(e){
+    console.error("Save failed", e);
+    setSaveError();
+  }
+}
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function uid(){ return Math.random().toString(36).slice(2,10); }
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+  }[c]));
+}
+
+/* ---------- Save indicator ---------- */
+let saveTimer = null;
+function flashSaving(){
+  const dot = document.getElementById("save-dot");
+  const txt = document.getElementById("save-status");
+  if(dot) dot.className = "save-dot saving";
+  if(txt) txt.textContent = "Saving…";
+}
+function setSaved(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    const dot = document.getElementById("save-dot");
+    const txt = document.getElementById("save-status");
+    if(dot) dot.className = "save-dot";
+    if(txt) txt.textContent = "Saved";
+  }, 250);
+}
+function setSaveError(){
+  const dot = document.getElementById("save-dot");
+  const txt = document.getElementById("save-status");
+  if(dot) dot.className = "save-dot error";
+  if(txt) txt.textContent = "Save failed";
+}
+
+/* ---------- Time helpers ---------- */
+function nowMs(){ return Date.now(); }
+function fmtDuration(ms){
+  if(!ms || ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if(h > 0){
+    return `${h}h ${String(m).padStart(2,"0")}m`;
+  }
+  return `${m}m ${String(s).padStart(2,"0")}s`;
+}
+function fmtTimerBig(ms){
+  if(!ms || ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const mm = String(m).padStart(2,"0");
+  const ss = String(s).padStart(2,"0");
+  if(h > 0) return `${h}:${mm}:${ss}`;
+  return `${mm}:${ss}`;
+}
+function effectiveTime(task){
+  let t = task.timeSpentMs || 0;
+  if(data.running && data.running.taskId === task.id){
+    t += nowMs() - data.running.since;
+  }
+  return t;
+}
+
+/* ---------- Lookups ---------- */
+function getTask(id){ return data.tasks.find(t => t.id === id); }
+function getState(id){ return data.states.find(s => s.id === id); }
+function getTag(id){ return data.tags.find(t => t.id === id); }
+function getRecurrence(id){
+  if(!id || !Array.isArray(data.recurrences)) return null;
+  return data.recurrences.find(r => r.id === id) || null;
+}
+function recurrenceTypeHint(type){
+  const rt = RECURRENCE_TYPES.find(x => x.id === type);
+  return rt ? rt.hint : "";
+}
+function kindOfTask(task){
+  const st = getState(task.stateId);
+  return st ? st.kind : "active";
+}
+function defaultActiveStateId(){
+  const s = data.states.find(x => x.kind === "active");
+  return s ? s.id : data.states[0].id;
+}
+
+/* ---------- Subtasks & recurrence ---------- */
+function progressOf(task){
+  const subs = task.subtasks || [];
+  return { done: subs.filter(s => s.done).length, total: subs.length };
+}
+
+/* ---------- Follow-up dates ---------- */
+function todayYmd(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function daysFromToday(ymd){
+  if(!ymd) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+function fmtFollowUp(ymd){
+  const delta = daysFromToday(ymd);
+  if(delta === null) return "";
+  if(delta === 0) return "Today";
+  if(delta === 1) return "Tomorrow";
+  if(delta === -1) return "Yesterday";
+  if(delta > 1 && delta <= 6) return `In ${delta} days`;
+  if(delta < -1 && delta >= -6) return `${-delta} days ago`;
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    month: "short", day: "numeric",
+    year: (new Date()).getFullYear() === y ? undefined : "numeric"
+  });
+}
+function followUpClass(ymd){
+  const delta = daysFromToday(ymd);
+  if(delta === null) return "";
+  if(delta < 0) return "overdue";
+  if(delta === 0) return "today";
+  if(delta <= 3) return "soon";
+  return "future";
+}
+function followUpChipHtml(task){
+  if(!task.followUpDate) return "";
+  const cls = followUpClass(task.followUpDate);
+  const label = fmtFollowUp(task.followUpDate);
+  return `<span class="chip followup-chip ${cls}" title="Follow up on ${escapeHtml(task.followUpDate)}">📅 ${escapeHtml(label)}</span>`;
+}
+
+const RECURRENCE_LABELS = {}; // legacy placeholder; recurrences are now data-driven
+
+function nextMorningAfter(fromMs){
+  const d = new Date(fromMs);
+  d.setHours(5, 0, 0, 0);
+  if(d.getTime() <= fromMs){
+    d.setDate(d.getDate() + 1);
+  }
+  return d.getTime();
+}
+function nextWeekdayMorningAfter(fromMs){
+  let t = nextMorningAfter(fromMs);
+  // Skip Saturday (6) and Sunday (0)
+  while(true){
+    const dow = new Date(t).getDay();
+    if(dow >= 1 && dow <= 5) return t;
+    t += 24 * 60 * 60 * 1000;
+  }
+}
+function nextMorningOnDowAfter(fromMs, targetDow){
+  let t = nextMorningAfter(fromMs);
+  for(let i = 0; i < 7; i++){
+    if(new Date(t).getDay() === targetDow) return t;
+    t += 24 * 60 * 60 * 1000;
+  }
+  return t;
+}
+function nextResetForTask(task, fromMs){
+  const def = getRecurrence(task.recurrence);
+  if(!def) return null;
+  switch(def.type){
+    case "day":     return nextMorningAfter(fromMs);
+    case "weekday": return nextWeekdayMorningAfter(fromMs);
+    case "week":    return nextMorningAfter(fromMs + 6 * 24 * 60 * 60 * 1000);
+    default: {
+      const rt = RECURRENCE_TYPES.find(x => x.id === def.type);
+      if(rt && typeof rt.dow === "number") return nextMorningOnDowAfter(fromMs, rt.dow);
+      return null;
+    }
+  }
+}
+function scheduleRecurrenceReset(task){
+  if(!task.recurrence){
+    task.nextResetAt = null;
+    return;
+  }
+  task.nextResetAt = nextResetForTask(task, nowMs());
+}
+function resetRecurringTask(task){
+  const active = defaultActiveStateId();
+  task.stateId = active;
+  task.completedAt = null;
+  task.timeSpentMs = 0;
+  (task.subtasks || []).forEach(s => { s.done = false; });
+  task.nextResetAt = null;
+  task.followUpDate = null;
+}
+function applyRecurrenceIfDue(){
+  if(!Array.isArray(data.tasks)) return false;
+  const now = nowMs();
+  let changed = false;
+  data.tasks.forEach(task => {
+    // Clean up: if task references a deleted recurrence, drop it.
+    if(task.recurrence && !getRecurrence(task.recurrence)){
+      task.recurrence = null;
+      task.nextResetAt = null;
+      changed = true;
+      return;
+    }
+    if(task.recurrence && task.nextResetAt && task.nextResetAt <= now){
+      resetRecurringTask(task);
+      changed = true;
+    }
+  });
+  if(changed) save();
+  return changed;
+}
+
+/* ---------- Timer ---------- */
+let tickHandle = null;
+function startTickIfRunning(){
+  stopTick();
+  if(!data.running) return;
+  tickHandle = setInterval(()=>{
+    // Cheap re-render of just the live time bits
+    updateLiveTimes();
+  }, 1000);
+}
+function stopTick(){
+  if(tickHandle){ clearInterval(tickHandle); tickHandle = null; }
+}
+function startTimer(taskId){
+  if(data.running && data.running.taskId === taskId) return;
+  if(data.running){
+    stopTimer({ skipSave: true });
+  }
+  // Starting a timer manually clears any “paused” state.
+  data.paused = false;
+  data.pausedFromTaskId = null;
+  data.running = { taskId, since: nowMs() };
+  save();
+  startTickIfRunning();
+  renderAll();
+}
+function stopTimer(opts = {}){
+  if(!data.running) return;
+  const elapsed = nowMs() - data.running.since;
+  const task = getTask(data.running.taskId);
+  if(task){
+    task.timeSpentMs = (task.timeSpentMs || 0) + elapsed;
+  }
+  data.running = null;
+  stopTick();
+  // Manual stops (not coming from pauseAll) also clear pause state.
+  if(!opts.keepPaused){
+    data.paused = false;
+    data.pausedFromTaskId = null;
+  }
+  if(!opts.skipSave) save();
+  if(!opts.skipRender) renderAll();
+}
+
+function pauseAll(){
+  // Capture which task is currently running so Resume can restart it.
+  const wasRunningId = data.running ? data.running.taskId : null;
+  if(data.running){
+    stopTimer({ skipSave: true, skipRender: true, keepPaused: true });
+  }
+  data.paused = true;
+  data.pausedFromTaskId = wasRunningId;
+  save();
+  renderAll();
+}
+function resumeAll(){
+  const resumeId = data.pausedFromTaskId;
+  data.paused = false;
+  data.pausedFromTaskId = null;
+  if(resumeId && getTask(resumeId)){
+    startTimer(resumeId); // startTimer saves + renders
+  }else{
+    save();
+    renderAll();
+  }
+}
+
+/* ---------- Focus management ---------- */
+function isFocused(taskId){ return data.focusOrder.includes(taskId); }
+function addToFocus(taskId){
+  if(isFocused(taskId)) return true;
+  if(data.focusOrder.length >= MAX_FOCUS){
+    alert(`Focus is full — drop one of the ${MAX_FOCUS} first.`);
+    return false;
+  }
+  data.focusOrder.push(taskId);
+  save();
+  renderAll();
+  return true;
+}
+function removeFromFocus(taskId){
+  data.focusOrder = data.focusOrder.filter(id => id !== taskId);
+  if(data.running && data.running.taskId === taskId){
+    stopTimer({ skipRender: true });
+  }
+  save();
+  renderAll();
+}
+function moveFocus(taskId, delta){
+  const i = data.focusOrder.indexOf(taskId);
+  if(i < 0) return;
+  const j = i + delta;
+  if(j < 0 || j >= data.focusOrder.length) return;
+  const arr = data.focusOrder;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  save();
+  renderAll();
+}
+
+/* ---------- Tabs ---------- */
+document.getElementById("tabs").addEventListener("click", e=>{
+  const btn = e.target.closest("button[data-tab]");
+  if(!btn) return;
+  switchTab(btn.dataset.tab);
+});
+function switchTab(name){
+  document.querySelectorAll("#tabs button").forEach(b=>{
+    b.classList.toggle("active", b.dataset.tab === name);
+  });
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.getElementById("page-"+name).classList.add("active");
+  renderAll();
+}
+
+/* ---------- Render: Focus tab ---------- */
+function renderFocus(){
+  const grid = document.getElementById("focus-grid");
+  if(!grid) return;
+  renderPauseButton();
+  const slots = [];
+  for(let i = 0; i < MAX_FOCUS; i++){
+    const id = data.focusOrder[i];
+    if(id){
+      const task = getTask(id);
+      if(!task){
+        data.focusOrder.splice(i, 1);
+        i--;
+        continue;
+      }
+      slots.push(renderFocusSlot(task, i));
+    }else{
+      slots.push(renderEmptyFocusSlot(i));
+    }
+  }
+  grid.innerHTML = slots.join("");
+}
+function renderPauseButton(){
+  const btn = document.getElementById("btn-pause-all");
+  if(!btn) return;
+  if(data.paused){
+    btn.textContent = "▶ Resume all tasks";
+    btn.classList.add("is-paused");
+    document.body.classList.add("is-paused");
+  }else{
+    btn.textContent = "⏸ Pause all work";
+    btn.classList.remove("is-paused");
+    document.body.classList.remove("is-paused");
+  }
+}
+function renderFocusSlot(task, idx){
+  const running = data.running && data.running.taskId === task.id;
+  const tags = (task.tagIds || []).map(tid => {
+    const t = getTag(tid);
+    if(!t) return "";
+    return `<span class="chip"><span class="swatch" style="background:${escapeHtml(t.color)}"></span>${escapeHtml(t.name)}</span>`;
+  }).join("");
+  const recurChip = task.recurrence ? (()=>{
+    const def = getRecurrence(task.recurrence);
+    if(!def) return "";
+    return `<span class="chip recur-chip" title="${escapeHtml(def.name)}">🔁</span>`;
+  })() : "";
+  const followChip = followUpChipHtml(task);
+  const t = effectiveTime(task);
+  const subs = task.subtasks || [];
+  const prog = progressOf(task);
+  const visible = subs.slice(0, 5);
+  const subsHtml = subs.length === 0 ? "" : `
+      <div class="focus-subtasks">
+        ${visible.map(s => `
+          <label class="focus-sub ${s.done ? "done" : ""}">
+            <input type="checkbox" data-act="toggle-sub" data-sub="${s.id}" ${s.done ? "checked" : ""} />
+            <span>${escapeHtml(s.title)}</span>
+          </label>
+        `).join("")}
+        ${subs.length > 5 ? `<div class="more">+ ${subs.length - 5} more (open task to see all)</div>` : ""}
+        <div class="more" style="text-align:right;">${prog.done} / ${prog.total} done</div>
+      </div>`;
+  return `
+    <div class="focus-slot ${running ? "running" : ""}" data-task="${task.id}">
+      <span class="slot-num">Slot ${idx+1}</span>
+      <div class="reorder">
+        ${idx > 0 ? `<button data-act="up" title="Move up">↑</button>` : ""}
+        ${idx < data.focusOrder.length - 1 ? `<button data-act="down" title="Move down">↓</button>` : ""}
+      </div>
+      <div class="task-title" data-act="edit">${escapeHtml(task.title)}</div>
+      <div class="task-tags">${tags}${recurChip}${followChip}</div>
+      ${subsHtml}
+      <div class="timer-display" data-role="timer">${fmtTimerBig(t)}</div>
+      <div class="slot-actions">
+        ${running
+          ? `<button class="btn danger" data-act="stop">⏸ Stop</button>`
+          : `<button class="btn success" data-act="start">▶ Start</button>`}
+        <button class="btn ghost" data-act="done" title="Mark done & remove from focus">✓ Done</button>
+        <button class="btn ghost" data-act="unfocus" title="Remove from focus">✕</button>
+      </div>
+    </div>
+  `;
+}
+function renderEmptyFocusSlot(idx){
+  return `
+    <div class="focus-slot empty-slot" data-empty="${idx}">
+      <span class="slot-num" style="position:relative; top:0; left:0; align-self:flex-start;">Slot ${idx+1}</span>
+      <div style="font-size:36px;">💻</div>
+      <div>This slot is open.<br/>Star a task in <strong>Working on now</strong>.</div>
+    </div>
+  `;
+}
+function updateLiveTimes(){
+  // Update the big timer on the running focus slot and the per-row time in Working On
+  if(!data.running) return;
+  const task = getTask(data.running.taskId);
+  if(!task) return;
+  const ms = effectiveTime(task);
+  document.querySelectorAll(`.focus-slot[data-task="${task.id}"] [data-role="timer"]`).forEach(el=>{
+    el.textContent = fmtTimerBig(ms);
+  });
+  document.querySelectorAll(`.task-row[data-task="${task.id}"] [data-role="row-time"]`).forEach(el=>{
+    el.textContent = fmtDuration(ms);
+  });
+}
+
+// Pause / Resume all
+document.getElementById("btn-pause-all").addEventListener("click", ()=>{
+  if(data.paused) resumeAll();
+  else pauseAll();
+});
+
+// Focus slot click handler (delegated)
+document.getElementById("focus-grid").addEventListener("click", e=>{
+  // Subtask checkboxes use change, not click.
+  if(e.target.closest("input[data-act='toggle-sub']")) return;
+  const btn = e.target.closest("[data-act]");
+  if(!btn) return;
+  const slot = btn.closest(".focus-slot");
+  if(!slot) return;
+  const taskId = slot.dataset.task;
+  if(!taskId) return;
+  const act = btn.dataset.act;
+  if(act === "start"){ startTimer(taskId); }
+  else if(act === "stop"){ stopTimer(); }
+  else if(act === "done"){ markDone(taskId); }
+  else if(act === "unfocus"){ removeFromFocus(taskId); }
+  else if(act === "up"){ moveFocus(taskId, -1); }
+  else if(act === "down"){ moveFocus(taskId, 1); }
+  else if(act === "edit"){ openTaskModal(taskId); }
+});
+document.getElementById("focus-grid").addEventListener("change", e=>{
+  const cb = e.target.closest("input[data-act='toggle-sub']");
+  if(!cb) return;
+  const slot = cb.closest(".focus-slot");
+  if(!slot) return;
+  const task = getTask(slot.dataset.task);
+  if(!task) return;
+  const sub = (task.subtasks || []).find(s => s.id === cb.dataset.sub);
+  if(!sub) return;
+  sub.done = cb.checked;
+  save();
+  renderAll();
+});
+
+/* ---------- Render: Working On tab ---------- */
+function renderWorking(){
+  // Populate the new-task state dropdown
+  const sel = document.getElementById("new-task-state");
+  if(sel){
+    const prev = sel.value;
+    sel.innerHTML = data.states.map(s =>
+      `<option value="${s.id}">${escapeHtml(s.name)}</option>`
+    ).join("");
+    sel.value = prev || defaultActiveStateId();
+  }
+
+  const groups = document.getElementById("working-groups");
+  if(!groups) return;
+  const html = KINDS.map(k => {
+    const tasks = data.tasks
+      .filter(t => kindOfTask(t) === k.id)
+      .sort((a, b) => {
+        // Focused first
+        const af = isFocused(a.id) ? 0 : 1;
+        const bf = isFocused(b.id) ? 0 : 1;
+        if(af !== bf) return af - bf;
+        // Then by follow-up date ascending (overdue first); no-date sinks below dated
+        const ad = a.followUpDate || null;
+        const bd = b.followUpDate || null;
+        if(ad && !bd) return -1;
+        if(!ad && bd) return 1;
+        if(ad && bd && ad !== bd) return ad < bd ? -1 : 1;
+        // Finally newest-created first
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
+    return `
+      <div class="card" data-kind="${k.id}">
+        <h2>${k.emoji} ${escapeHtml(k.label)} <span class="count">${tasks.length}</span></h2>
+        ${tasks.length === 0
+          ? `<div class="empty"><span class="em">📭</span>Nothing here right now. Drop a task to move it here.</div>`
+          : `<div class="task-list">${tasks.map(t => renderTaskRow(t)).join("")}</div>`}
+      </div>
+    `;
+  }).join("");
+  groups.innerHTML = html;
+}
+function renderTaskRow(task){
+  const focused = isFocused(task.id);
+  const running = data.running && data.running.taskId === task.id;
+  const k = kindOfTask(task);
+  const tagChips = (task.tagIds || []).map(tid => {
+    const tg = getTag(tid);
+    if(!tg) return "";
+    return `<span class="chip"><span class="swatch" style="background:${escapeHtml(tg.color)}"></span>${escapeHtml(tg.name)}</span>`;
+  }).join("");
+  const prog = progressOf(task);
+  const progressChip = prog.total > 0
+    ? `<span class="chip progress-chip" title="${prog.done} of ${prog.total} subtasks done">✓ ${prog.done}/${prog.total}</span>`
+    : "";
+  const recurChip = task.recurrence
+    ? (()=>{
+        const def = getRecurrence(task.recurrence);
+        return def ? `<span class="chip recur-chip" title="${escapeHtml(def.name)}">🔁</span>` : "";
+      })()
+    : "";
+  const followChip = followUpChipHtml(task);
+  const ms = effectiveTime(task);
+  const stateOptions = data.states.map(s =>
+    `<option value="${s.id}" ${s.id === task.stateId ? "selected" : ""}>${escapeHtml(s.name)}</option>`
+  ).join("");
+  return `
+    <div class="task-row ${focused ? "focused" : ""} kind-${k}" data-task="${task.id}" draggable="true">
+      <button class="star-btn ${focused ? "on" : ""}" data-act="toggle-focus" title="${focused ? "Remove from Focus" : "Add to Focus"}">${focused ? "★" : "☆"}</button>
+      <div class="task-main" data-act="edit" title="Click to edit">
+        <div class="task-title-row">
+          <span class="title">${escapeHtml(task.title)}</span>
+          ${tagChips}${progressChip}${recurChip}${followChip}
+        </div>
+        <div class="task-meta">
+          <span class="time ${running ? "running" : ""}" data-role="row-time">${fmtDuration(ms)}</span>
+          ${running ? `<span style="color:var(--accent-2); font-weight:600;">timer running</span>` : ""}
+        </div>
+      </div>
+      <div class="task-actions">
+        <select data-act="set-state" title="Move to state">${stateOptions}</select>
+        <button class="icon" data-act="delete" title="Delete">🗑️</button>
+      </div>
+    </div>
+  `;
+}
+
+document.getElementById("working-groups").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-act]");
+  if(!btn) return;
+  const row = btn.closest(".task-row");
+  if(!row) return;
+  const taskId = row.dataset.task;
+  const act = btn.dataset.act;
+  if(act === "toggle-focus"){
+    if(isFocused(taskId)) removeFromFocus(taskId);
+    else addToFocus(taskId);
+  }else if(act === "edit"){
+    openTaskModal(taskId);
+  }else if(act === "delete"){
+    deleteTask(taskId);
+  }
+});
+document.getElementById("working-groups").addEventListener("change", e=>{
+  const sel = e.target.closest("select[data-act='set-state']");
+  if(!sel) return;
+  const row = sel.closest(".task-row");
+  if(!row) return;
+  const task = getTask(row.dataset.task);
+  if(!task) return;
+  const wasKind = kindOfTask(task);
+  task.stateId = sel.value;
+  const nowKind = kindOfTask(task);
+  if(nowKind === "done"){
+    task.completedAt = nowMs();
+    // Auto-unfocus when marked done
+    data.focusOrder = data.focusOrder.filter(id => id !== task.id);
+    if(data.running && data.running.taskId === task.id){
+      stopTimer({ skipRender: true });
+    }
+    if(task.recurrence && wasKind !== "done"){
+      scheduleRecurrenceReset(task);
+    }
+  }else if(wasKind === "done"){
+    // Coming back out of done: drop any pending reset.
+    task.nextResetAt = null;
+    task.completedAt = null;
+  }
+  save();
+  renderAll();
+});
+
+/* ---------- Drag & drop between kind groups ---------- */
+let dragTaskId = null;
+function moveTaskToKind(taskId, kindId){
+  const task = getTask(taskId);
+  if(!task) return;
+  const wasKind = kindOfTask(task);
+  if(wasKind === kindId) return; // already there
+  const newState = data.states.find(s => s.kind === kindId);
+  if(!newState) return;
+  task.stateId = newState.id;
+  if(kindId === "done"){
+    task.completedAt = nowMs();
+    data.focusOrder = data.focusOrder.filter(id => id !== task.id);
+    if(data.running && data.running.taskId === task.id){
+      stopTimer({ skipRender: true });
+    }
+    if(task.recurrence && wasKind !== "done"){
+      scheduleRecurrenceReset(task);
+    }
+  }else if(wasKind === "done"){
+    task.nextResetAt = null;
+    task.completedAt = null;
+  }
+  save();
+  renderAll();
+}
+(function wireWorkingDnD(){
+  const wg = document.getElementById("working-groups");
+  if(!wg) return;
+  wg.addEventListener("dragstart", e=>{
+    const row = e.target.closest(".task-row");
+    if(!row) return;
+    dragTaskId = row.dataset.task;
+    row.classList.add("dragging");
+    if(e.dataTransfer){
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", dragTaskId); } catch(_) {}
+    }
+  });
+  wg.addEventListener("dragend", e=>{
+    const row = e.target.closest(".task-row");
+    if(row) row.classList.remove("dragging");
+    wg.querySelectorAll(".card.drop-target").forEach(c => c.classList.remove("drop-target"));
+    dragTaskId = null;
+  });
+  wg.addEventListener("dragover", e=>{
+    if(!dragTaskId) return;
+    const card = e.target.closest(".card[data-kind]");
+    if(!card) return;
+    e.preventDefault();
+    if(e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  });
+  wg.addEventListener("dragenter", e=>{
+    if(!dragTaskId) return;
+    const card = e.target.closest(".card[data-kind]");
+    if(!card) return;
+    card.classList.add("drop-target");
+  });
+  wg.addEventListener("dragleave", e=>{
+    const card = e.target.closest(".card[data-kind]");
+    if(!card) return;
+    if(!card.contains(e.relatedTarget)) card.classList.remove("drop-target");
+  });
+  wg.addEventListener("drop", e=>{
+    const card = e.target.closest(".card[data-kind]");
+    if(!card || !dragTaskId) return;
+    e.preventDefault();
+    card.classList.remove("drop-target");
+    moveTaskToKind(dragTaskId, card.dataset.kind);
+    dragTaskId = null;
+  });
+})();
+
+/* ---------- Task actions ---------- */
+function addTask(title, stateId){
+  const t = (title || "").trim();
+  if(!t) return;
+  data.tasks.push({
+    id: uid(),
+    title: t,
+    notes: "",
+    stateId: stateId || defaultActiveStateId(),
+    tagIds: [],
+    timeSpentMs: 0,
+    createdAt: nowMs(),
+    completedAt: null,
+    subtasks: [],
+    recurrence: null,
+    nextResetAt: null,
+    followUpDate: null
+  });
+  save();
+  renderAll();
+}
+function deleteTask(taskId){
+  const task = getTask(taskId);
+  if(!task) return;
+  if(!confirm(`Delete “${task.title}”? This can’t be undone.`)) return;
+  if(data.running && data.running.taskId === taskId){
+    stopTimer({ skipSave: true, skipRender: true });
+  }
+  data.tasks = data.tasks.filter(t => t.id !== taskId);
+  data.focusOrder = data.focusOrder.filter(id => id !== taskId);
+  save();
+  renderAll();
+}
+function markDone(taskId){
+  const task = getTask(taskId);
+  if(!task) return;
+  const done = data.states.find(s => s.kind === "done");
+  if(!done){
+    alert("No state with kind 'Done' exists. Add one in Admin.");
+    return;
+  }
+  if(data.running && data.running.taskId === taskId){
+    stopTimer({ skipSave: true, skipRender: true });
+  }
+  task.stateId = done.id;
+  task.completedAt = nowMs();
+  data.focusOrder = data.focusOrder.filter(id => id !== taskId);
+  if(task.recurrence){
+    scheduleRecurrenceReset(task);
+  }
+  save();
+  renderAll();
+}
+
+// New-task bar
+document.getElementById("btn-add-task").addEventListener("click", ()=>{
+  const input = document.getElementById("new-task-title");
+  const stateSel = document.getElementById("new-task-state");
+  addTask(input.value, stateSel.value);
+  input.value = "";
+  input.focus();
+});
+document.getElementById("new-task-title").addEventListener("keydown", e=>{
+  if(e.key === "Enter"){
+    e.preventDefault();
+    document.getElementById("btn-add-task").click();
+  }
+});
+
+/* ---------- Task modal ---------- */
+let editingTaskId = null;
+let editingSubtasks = [];
+function openTaskModal(taskId){
+  const task = getTask(taskId);
+  if(!task) return;
+  editingTaskId = taskId;
+  editingSubtasks = (task.subtasks || []).map(s => ({ id: s.id, title: s.title, done: !!s.done }));
+  document.getElementById("task-modal-title").textContent = "Edit task";
+  document.getElementById("task-modal-sub").textContent = "Created " + new Date(task.createdAt || nowMs()).toLocaleString();
+  document.getElementById("task-modal-title-input").value = task.title || "";
+  document.getElementById("task-modal-notes").value = task.notes || "";
+  const sel = document.getElementById("task-modal-state");
+  sel.innerHTML = data.states.map(s =>
+    `<option value="${s.id}" ${s.id === task.stateId ? "selected" : ""}>${escapeHtml(s.name)}</option>`
+  ).join("");
+  // Tag picker
+  const picker = document.getElementById("task-modal-tags");
+  if(data.tags.length === 0){
+    picker.innerHTML = `<span style="font-size:12px; color:var(--ink-soft);">No tags yet. Add some on the Admin tab.</span>`;
+  }else{
+    picker.innerHTML = data.tags.map(tag => {
+      const on = (task.tagIds || []).includes(tag.id);
+      return `<button class="tag-pick ${on ? "on" : ""}" data-tag="${tag.id}">
+        <span class="swatch" style="background:${escapeHtml(tag.color)}"></span>${escapeHtml(tag.name)}
+      </button>`;
+    }).join("");
+  }
+  // Subtasks
+  renderModalSubtasks();
+  document.getElementById("task-modal-subtask-new").value = "";
+  // Recurrence
+  const rec = document.getElementById("task-modal-recurrence");
+  // Repopulate options from data.recurrences each time the modal opens
+  const recOpts = [`<option value="">One-off — no recurrence</option>`]
+    .concat((data.recurrences || []).map(r =>
+      `<option value="${escapeHtml(r.id)}">🔁 ${escapeHtml(r.name)}</option>`
+    ));
+  rec.innerHTML = recOpts.join("");
+  rec.value = task.recurrence && getRecurrence(task.recurrence) ? task.recurrence : "";
+  updateRecurrenceHint();
+  // Follow-up
+  document.getElementById("task-modal-followup").value = task.followUpDate || "";
+  document.getElementById("task-modal-time").textContent = fmtDuration(effectiveTime(task));
+  document.getElementById("task-modal-bg").classList.add("open");
+  setTimeout(()=>document.getElementById("task-modal-title-input").focus(), 30);
+}
+function renderModalSubtasks(){
+  const list = document.getElementById("task-modal-subtasks");
+  if(!list) return;
+  if(editingSubtasks.length === 0){
+    list.innerHTML = `<div style="font-size:12px; color:var(--ink-soft); padding:6px 4px;">No subtasks yet. Add one below.</div>`;
+    return;
+  }
+  list.innerHTML = editingSubtasks.map((s, i) => `
+    <div class="subtask-item ${s.done ? "done" : ""}" data-idx="${i}">
+      <input type="checkbox" data-act="toggle" ${s.done ? "checked" : ""} />
+      <input type="text" class="sub-title" data-act="rename" value="${escapeHtml(s.title)}" />
+      <button class="icon" data-act="delete" title="Delete">🗑️</button>
+    </div>
+  `).join("");
+}
+function updateRecurrenceHint(){
+  const v = document.getElementById("task-modal-recurrence").value;
+  const hint = document.getElementById("task-modal-recurrence-hint");
+  if(!v){ hint.textContent = ""; return; }
+  const def = getRecurrence(v);
+  hint.textContent = def ? recurrenceTypeHint(def.type) : "";
+}
+function closeTaskModal(){
+  editingTaskId = null;
+  editingSubtasks = [];
+  document.getElementById("task-modal-bg").classList.remove("open");
+}
+document.getElementById("task-modal-tags").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-tag]");
+  if(!btn) return;
+  btn.classList.toggle("on");
+});
+
+// Subtask handlers
+document.getElementById("task-modal-subtasks").addEventListener("click", e=>{
+  const item = e.target.closest(".subtask-item");
+  if(!item) return;
+  const i = parseInt(item.dataset.idx, 10);
+  if(e.target.dataset && e.target.dataset.act === "delete"){
+    editingSubtasks.splice(i, 1);
+    renderModalSubtasks();
+  }
+});
+document.getElementById("task-modal-subtasks").addEventListener("change", e=>{
+  const item = e.target.closest(".subtask-item");
+  if(!item) return;
+  const i = parseInt(item.dataset.idx, 10);
+  if(e.target.dataset.act === "toggle"){
+    editingSubtasks[i].done = e.target.checked;
+    item.classList.toggle("done", e.target.checked);
+  }
+});
+document.getElementById("task-modal-subtasks").addEventListener("input", e=>{
+  const item = e.target.closest(".subtask-item");
+  if(!item) return;
+  if(e.target.dataset.act === "rename"){
+    const i = parseInt(item.dataset.idx, 10);
+    editingSubtasks[i].title = e.target.value;
+  }
+});
+document.getElementById("task-modal-subtask-add").addEventListener("click", ()=>{
+  const input = document.getElementById("task-modal-subtask-new");
+  const v = input.value.trim();
+  if(!v) return;
+  editingSubtasks.push({ id: uid(), title: v, done: false });
+  input.value = "";
+  renderModalSubtasks();
+  input.focus();
+});
+document.getElementById("task-modal-subtask-new").addEventListener("keydown", e=>{
+  if(e.key === "Enter"){
+    e.preventDefault();
+    document.getElementById("task-modal-subtask-add").click();
+  }
+});
+document.getElementById("task-modal-recurrence").addEventListener("change", updateRecurrenceHint);
+document.getElementById("task-modal-followup-clear").addEventListener("click", ()=>{
+  document.getElementById("task-modal-followup").value = "";
+});
+document.getElementById("task-modal-cancel").addEventListener("click", closeTaskModal);
+document.getElementById("task-modal-bg").addEventListener("click", e=>{
+  if(e.target.id === "task-modal-bg") closeTaskModal();
+});
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape" && document.getElementById("task-modal-bg").classList.contains("open")){
+    closeTaskModal();
+  }
+});
+document.getElementById("task-modal-save").addEventListener("click", ()=>{
+  if(!editingTaskId) return;
+  const task = getTask(editingTaskId);
+  if(!task) return;
+  const newTitle = document.getElementById("task-modal-title-input").value.trim();
+  if(!newTitle){
+    alert("Title can’t be empty.");
+    return;
+  }
+  task.title = newTitle;
+  task.notes = document.getElementById("task-modal-notes").value;
+  const newStateId = document.getElementById("task-modal-state").value;
+  const wasKind = kindOfTask(task);
+  task.stateId = newStateId;
+  const nowKind = kindOfTask(task);
+  task.tagIds = Array.from(document.querySelectorAll("#task-modal-tags .tag-pick.on"))
+    .map(b => b.dataset.tag);
+  // Commit subtasks (drop empty-title ones)
+  task.subtasks = editingSubtasks
+    .map(s => ({ id: s.id, title: (s.title || "").trim(), done: !!s.done }))
+    .filter(s => s.title.length > 0);
+  // Recurrence
+  const newRec = document.getElementById("task-modal-recurrence").value || null;
+  const recChanged = task.recurrence !== newRec;
+  task.recurrence = newRec;
+  if(!newRec){
+    task.nextResetAt = null;
+  }
+  // Follow-up date
+  const followRaw = document.getElementById("task-modal-followup").value;
+  task.followUpDate = (typeof followRaw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(followRaw)) ? followRaw : null;
+  if(nowKind === "done" && wasKind !== "done"){
+    task.completedAt = nowMs();
+    data.focusOrder = data.focusOrder.filter(id => id !== task.id);
+    if(data.running && data.running.taskId === task.id){
+      stopTimer({ skipSave: true, skipRender: true });
+    }
+    if(task.recurrence){
+      scheduleRecurrenceReset(task);
+    }
+  }else if(wasKind === "done" && nowKind !== "done"){
+    task.completedAt = null;
+    task.nextResetAt = null;
+  }else if(nowKind === "done" && recChanged && task.recurrence){
+    // Already done, but recurrence just turned on/changed: schedule from now.
+    scheduleRecurrenceReset(task);
+  }
+  save();
+  closeTaskModal();
+  renderAll();
+});
+document.getElementById("task-modal-delete").addEventListener("click", ()=>{
+  if(!editingTaskId) return;
+  const id = editingTaskId;
+  closeTaskModal();
+  deleteTask(id);
+});
+document.getElementById("task-modal-reset-time").addEventListener("click", ()=>{
+  if(!editingTaskId) return;
+  const task = getTask(editingTaskId);
+  if(!task) return;
+  if(!confirm("Reset time spent to 0?")) return;
+  if(data.running && data.running.taskId === task.id){
+    stopTimer({ skipSave: true, skipRender: true });
+  }
+  task.timeSpentMs = 0;
+  save();
+  document.getElementById("task-modal-time").textContent = fmtDuration(0);
+  renderAll();
+});
+
+/* ---------- Render: Admin ---------- */
+function renderAdmin(){
+  // States
+  const sl = document.getElementById("states-list");
+  sl.innerHTML = data.states.map(s => {
+    const kind = KINDS.find(k => k.id === s.kind) || KINDS[0];
+    const kindColor =
+      s.kind === "active" ? "var(--kind-active)" :
+      s.kind === "waiting-something" ? "var(--kind-something)" :
+      s.kind === "waiting-someone" ? "var(--kind-someone)" :
+      s.kind === "future" ? "var(--kind-future)" :
+      "var(--kind-done)";
+    const usage = data.tasks.filter(t => t.stateId === s.id).length;
+    return `
+      <div class="admin-item ${s.builtin ? "builtin" : ""}" data-state="${s.id}">
+        <span class="swatch" style="background:${kindColor}"></span>
+        <input class="name" data-act="rename-state" value="${escapeHtml(s.name)}" />
+        <select data-act="set-state-kind">
+          ${KINDS.map(k => `<option value="${k.id}" ${k.id === s.kind ? "selected" : ""}>${k.emoji} ${k.label}</option>`).join("")}
+        </select>
+        <span class="kind-pill" title="${usage} task${usage === 1 ? "" : "s"}">${usage}</span>
+        <button class="icon" data-act="delete-state" title="${s.builtin ? "Built-in states can’t be deleted" : "Delete"}" ${s.builtin ? "disabled style='opacity:.3; cursor:not-allowed;'" : ""}>🗑️</button>
+      </div>
+    `;
+  }).join("");
+
+  // Tags
+  const tl = document.getElementById("tags-list");
+  tl.innerHTML = data.tags.map(tag => {
+    const usage = data.tasks.filter(t => (t.tagIds || []).includes(tag.id)).length;
+    return `
+      <div class="admin-item" data-tag="${tag.id}">
+        <input type="color" data-act="set-tag-color" value="${escapeHtml(tag.color)}" style="width:32px; height:32px; padding:2px; border-radius:8px; cursor:pointer;" />
+        <input class="name" data-act="rename-tag" value="${escapeHtml(tag.name)}" />
+        <span class="kind-pill" title="${usage} task${usage === 1 ? "" : "s"}">${usage}</span>
+        <button class="icon" data-act="delete-tag" title="Delete">🗑️</button>
+      </div>
+    `;
+  }).join("");
+  if(data.tags.length === 0){
+    tl.innerHTML = `<div class="empty"><span class="em">🔖</span>No tags yet — add one below.</div>`;
+  }
+}
+
+document.getElementById("states-list").addEventListener("change", e=>{
+  const t = e.target;
+  const item = t.closest(".admin-item");
+  if(!item) return;
+  const id = item.dataset.state;
+  const state = getState(id);
+  if(!state) return;
+  if(t.dataset.act === "rename-state"){
+    const v = t.value.trim();
+    if(!v){ t.value = state.name; return; }
+    state.name = v;
+    save();
+    renderAll();
+  }else if(t.dataset.act === "set-state-kind"){
+    state.kind = t.value;
+    save();
+    renderAll();
+  }
+});
+document.getElementById("states-list").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-act='delete-state']");
+  if(!btn || btn.disabled) return;
+  const item = btn.closest(".admin-item");
+  const id = item.dataset.state;
+  const state = getState(id);
+  if(!state || state.builtin) return;
+  const usage = data.tasks.filter(t => t.stateId === id).length;
+  if(usage > 0){
+    if(!confirm(`${usage} task${usage === 1 ? "" : "s"} use this state. They’ll be moved to “Active”. Delete?`)) return;
+    const fallback = defaultActiveStateId();
+    data.tasks.forEach(t => { if(t.stateId === id) t.stateId = fallback; });
+  }else{
+    if(!confirm(`Delete state “${state.name}”?`)) return;
+  }
+  data.states = data.states.filter(s => s.id !== id);
+  save();
+  renderAll();
+});
+
+document.getElementById("btn-add-state").addEventListener("click", ()=>{
+  const name = document.getElementById("new-state-name").value.trim();
+  const kind = document.getElementById("new-state-kind").value;
+  if(!name) return;
+  data.states.push({ id: "s-" + uid(), name, kind, builtin: false });
+  document.getElementById("new-state-name").value = "";
+  save();
+  renderAll();
+});
+
+document.getElementById("tags-list").addEventListener("change", e=>{
+  const t = e.target;
+  const item = t.closest(".admin-item");
+  if(!item) return;
+  const id = item.dataset.tag;
+  const tag = getTag(id);
+  if(!tag) return;
+  if(t.dataset.act === "rename-tag"){
+    const v = t.value.trim();
+    if(!v){ t.value = tag.name; return; }
+    tag.name = v;
+    save();
+    renderAll();
+  }else if(t.dataset.act === "set-tag-color"){
+    tag.color = t.value;
+    save();
+    renderAll();
+  }
+});
+document.getElementById("tags-list").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-act='delete-tag']");
+  if(!btn) return;
+  const item = btn.closest(".admin-item");
+  const id = item.dataset.tag;
+  const tag = getTag(id);
+  if(!tag) return;
+  const usage = data.tasks.filter(t => (t.tagIds || []).includes(id)).length;
+  if(!confirm(`Delete tag “${tag.name}”${usage > 0 ? ` (used on ${usage} task${usage === 1 ? "" : "s"})` : ""}?`)) return;
+  data.tags = data.tags.filter(x => x.id !== id);
+  data.tasks.forEach(t => {
+    if(Array.isArray(t.tagIds)){
+      t.tagIds = t.tagIds.filter(x => x !== id);
+    }
+  });
+  save();
+  renderAll();
+});
+
+document.getElementById("btn-add-tag").addEventListener("click", ()=>{
+  const name = document.getElementById("new-tag-name").value.trim();
+  const color = document.getElementById("new-tag-color").value;
+  if(!name) return;
+  data.tags.push({ id: "t-" + uid(), name, color });
+  document.getElementById("new-tag-name").value = "";
+  save();
+  renderAll();
+});
+
+/* ---------- Data export / import / wipe ---------- */
+document.getElementById("btn-export").addEventListener("click", ()=>{
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `workfocus-${stamp}.json`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+});
+document.getElementById("btn-import").addEventListener("click", ()=>{
+  document.getElementById("import-file").click();
+});
+document.getElementById("import-file").addEventListener("change", async e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    if(!confirm("This will REPLACE all current data with the imported file. Continue?")) return;
+    data = mergeWithDefaults(parsed);
+    save();
+    startTickIfRunning();
+    renderAll();
+  }catch(err){
+    alert("Couldn't read that file: " + err.message);
+  }
+  e.target.value = "";
+});
+document.getElementById("btn-wipe").addEventListener("click", ()=>{
+  if(!confirm("Wipe ALL tasks, states, tags, and timer history? This can’t be undone.")) return;
+  if(!confirm("Really sure?")) return;
+  data = clone(DEFAULT_DATA);
+  save();
+  stopTick();
+  renderAll();
+});
+
+/* ---------- Render all ---------- */
+function renderAll(){
+  renderFocus();
+  renderWorking();
+  renderAdmin();
+}
+
+/* ---------- Boot ---------- */
+applyRecurrenceIfDue();
+renderAll();
+startTickIfRunning();
+
+// Check recurring tasks every minute in case the app is left open across 5 am.
+setInterval(()=>{
+  if(applyRecurrenceIfDue()){
+    renderAll();
+  }
+}, 60 * 1000);
+
+// If a tab is left open and the user closes the laptop / locks the screen,
+// the timer still ticks against real wall-clock time — nothing to do.
+// On page hide/show, refresh displayed times and re-check recurrence.
+document.addEventListener("visibilitychange", ()=>{
+  if(!document.hidden){
+    if(applyRecurrenceIfDue()){
+      renderAll();
+    }
+    updateLiveTimes();
+  }
+});
+
+// Cross-tab: if another browser tab updates storage, pick it up.
+window.addEventListener("storage", e=>{
+  if(e.key !== STORAGE_KEY) return;
+  try{
+    data = mergeWithDefaults(JSON.parse(e.newValue || "{}"));
+    stopTick();
+    startTickIfRunning();
+    renderAll();
+  }catch{}
+});
+</script>
+</body>
+</html>
