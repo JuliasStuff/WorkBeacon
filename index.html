@@ -1177,7 +1177,7 @@ function mergeWithDefaults(parsed){
       if(r && r.id && r.type) oldRecMap[r.id] = r.type;
     });
   }
-  return {
+  const result = {
     ...clone(DEFAULT_DATA),
     ...parsed,
     states: Array.isArray(parsed.states) && parsed.states.length ? parsed.states : clone(DEFAULT_STATES),
@@ -1224,6 +1224,21 @@ function mergeWithDefaults(parsed){
     paused: !!parsed.paused,
     pausedFromTaskIds: normalizePausedIds(parsed)
   };
+  // Backfill: every kind should have at least one matching state so it shows up
+  // in the task-modal state dropdown. (Custom kinds added before the auto-state
+  // logic existed otherwise have no state.)
+  for(const k of result.kinds){
+    const hasState = result.states.some(s => s.kind === k.id);
+    if(!hasState){
+      result.states.push({
+        id: "s-" + uid(),
+        name: k.label,
+        kind: k.id,
+        builtin: false
+      });
+    }
+  }
+  return result;
 }
 // Accept the old single-task running shape ({taskId, since}) and convert to the new map.
 function normalizeRunningMap(r){
@@ -1939,9 +1954,12 @@ function renderWorking(){
   const sel = document.getElementById("new-task-state");
   if(sel){
     const prev = sel.value;
-    sel.innerHTML = data.states.map(s =>
-      `<option value="${s.id}">${escapeHtml(s.name)}</option>`
-    ).join("");
+    const kindByIdW = new Map(getKinds().map(k => [k.id, k]));
+    sel.innerHTML = data.states.map(s => {
+      const kw = kindByIdW.get(s.kind);
+      const prefix = kw ? `${kw.emoji} ` : "";
+      return `<option value="${s.id}">${prefix}${escapeHtml(s.name)}</option>`;
+    }).join("");
     sel.value = prev || defaultActiveStateId();
   }
 
@@ -2294,9 +2312,12 @@ function openTaskModal(taskId){
   document.getElementById("task-modal-title-input").value = task.title || "";
   document.getElementById("task-modal-notes").value = task.notes || "";
   const sel = document.getElementById("task-modal-state");
-  sel.innerHTML = data.states.map(s =>
-    `<option value="${s.id}" ${s.id === task.stateId ? "selected" : ""}>${escapeHtml(s.name)}</option>`
-  ).join("");
+  const kindByIdM = new Map(getKinds().map(k => [k.id, k]));
+  sel.innerHTML = data.states.map(s => {
+    const km = kindByIdM.get(s.kind);
+    const prefix = km ? `${km.emoji} ` : "";
+    return `<option value="${s.id}" ${s.id === task.stateId ? "selected" : ""}>${prefix}${escapeHtml(s.name)}</option>`;
+  }).join("");
   // Project picker
   const projSel = document.getElementById("task-modal-project");
   const projOpts = [`<option value="">(None)</option>`].concat(
