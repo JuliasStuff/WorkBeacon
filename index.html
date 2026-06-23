@@ -95,6 +95,34 @@
     50%    { opacity:.55; transform:scale(.85); }
   }
 
+  /* Recovery banner — shown when load() had to rescue from backup */
+  .recovery-banner{
+    background:#fff3cd;
+    border:1px solid #f0c040;
+    color:#5a4500;
+    border-radius:12px;
+    padding:12px 14px;
+    margin-bottom:12px;
+    font-size:13px;
+    line-height:1.5;
+    box-shadow:var(--shadow);
+    display:flex; align-items:flex-start; gap:10px;
+  }
+  .recovery-banner.error{
+    background:#fde2e2;
+    border-color:#e98b8b;
+    color:#7a1f1f;
+  }
+  .recovery-banner .rb-body{ flex:1 1 auto; }
+  .recovery-banner strong{ font-weight:700; }
+  .recovery-banner .rb-dismiss{
+    flex:0 0 auto;
+    background:transparent; border:none; cursor:pointer;
+    font-size:18px; line-height:1; color:inherit; opacity:.6;
+    padding:2px 6px; border-radius:6px;
+  }
+  .recovery-banner .rb-dismiss:hover{ opacity:1; background:rgba(0,0,0,.06); }
+
   /* Tabs */
   nav.tabs{
     display:flex; gap:6px; flex-wrap:wrap;
@@ -582,6 +610,8 @@
     </div>
   </header>
 
+  <div id="recovery-banner" class="recovery-banner" hidden></div>
+
   <nav class="tabs" id="tabs">
     <button data-tab="focus" class="active">✨ Focus on this</button>
     <button data-tab="working">📋 Working on now</button>
@@ -651,6 +681,10 @@
       <h2>💾 Data</h2>
       <p style="font-size:13px; color:var(--ink-soft); margin:-4px 0 10px;">
         Everything lives in your browser. Use these to back up or move between machines.
+      </p>
+      <p style="font-size:12px; color:var(--ink-soft); margin:0 0 10px; line-height:1.5;">
+        💡 The app keeps one rolling backup automatically. For extra safety, hit <strong>Export JSON</strong> every so often —
+        that file is yours and can be re-imported on any device.
       </p>
       <div class="row">
         <button class="btn ghost" id="btn-export">📤 Export JSON</button>
@@ -724,8 +758,13 @@
    - One running timer at a time, ticking every second
    ========================================================= */
 
-const STORAGE_KEY = "workfocus-v1";
+const STORAGE_KEY        = "workfocus-v1";
+const BACKUP_KEY         = "workfocus-v1-backup";       // last good snapshot, written before each save
+const CORRUPT_KEY_PREFIX = "workfocus-v1-corrupt-";      // suffixed with timestamp on rescue
 const MAX_FOCUS = 3;
+
+// Filled in by load() when something had to be rescued so the UI can show a banner.
+let recoveryNotice = null; // { kind: 'restored-from-backup' | 'reset-no-backup', corruptKey?: string }
 
 const KINDS = [
   { id:"active",            label:"Active",                  emoji:"⚡" },
@@ -785,15 +824,44 @@ const DEFAULT_DATA = {
 let data = load();
 
 function load(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return clone(DEFAULT_DATA);
-    const parsed = JSON.parse(raw);
-    return mergeWithDefaults(parsed);
-  }catch(e){
-    console.warn("Failed to load, resetting", e);
-    return clone(DEFAULT_DATA);
+  const raw = safeRead(STORAGE_KEY);
+  if(raw){
+    try{
+      return mergeWithDefaults(JSON.parse(raw));
+    }catch(e){
+      console.error("WorkFocus: primary data failed to load — attempting backup", e);
+      // Quarantine the bad blob so the user can recover it manually if needed.
+      const corruptKey = CORRUPT_KEY_PREFIX + Date.now();
+      try{ localStorage.setItem(corruptKey, raw); }catch(_){}
+      const backup = safeRead(BACKUP_KEY);
+      if(backup){
+        try{
+          const recovered = mergeWithDefaults(JSON.parse(backup));
+          recoveryNotice = { kind:"restored-from-backup", corruptKey };
+          console.warn("WorkFocus: recovered from backup. Bad data preserved under", corruptKey);
+          return recovered;
+        }catch(e2){
+          console.error("WorkFocus: backup also failed to load", e2);
+        }
+      }
+      recoveryNotice = { kind:"reset-no-backup", corruptKey };
+      return clone(DEFAULT_DATA);
+    }
   }
+  // No primary data at all — but maybe a backup survived (e.g. user cleared the key).
+  const backup = safeRead(BACKUP_KEY);
+  if(backup){
+    try{
+      const recovered = mergeWithDefaults(JSON.parse(backup));
+      recoveryNotice = { kind:"restored-from-backup" };
+      console.warn("WorkFocus: no primary data found, recovered from backup");
+      return recovered;
+    }catch(_){}
+  }
+  return clone(DEFAULT_DATA);
+}
+function safeRead(key){
+  try{ return localStorage.getItem(key); }catch(_){ return null; }
 }
 function mergeWithDefaults(parsed){
   // Build map from any persisted (custom) recurrence ids -> their type, so we can
@@ -865,6 +933,13 @@ function normalizeTask(t, oldRecMap){
 function save(){
   flashSaving();
   try{
+    // Rotate the previous good snapshot into the backup slot BEFORE overwriting the primary.
+    // This way, if a future load() throws and the (now-blank) default state is saved back,
+    // the previous good copy is still recoverable from BACKUP_KEY.
+    const prev = safeRead(STORAGE_KEY);
+    if(prev) {
+      try{ localStorage.setItem(BACKUP_KEY, prev); }catch(_){}
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     setSaved();
   }catch(e){
@@ -2004,7 +2079,33 @@ document.getElementById("btn-wipe").addEventListener("click", ()=>{
 });
 
 /* ---------- Render all ---------- */
+function renderRecoveryBanner(){
+  const el = document.getElementById("recovery-banner");
+  if(!el) return;
+  if(!recoveryNotice){
+    el.hidden = true;
+    el.innerHTML = "";
+    el.classList.remove("error");
+    return;
+  }
+  const isReset = recoveryNotice.kind === "reset-no-backup";
+  el.classList.toggle("error", isReset);
+  const corruptHint = recoveryNotice.corruptKey
+    ? ` The unreadable copy was kept in your browser under <code>${escapeHtml(recoveryNotice.corruptKey)}</code> for safekeeping.`
+    : "";
+  const body = isReset
+    ? `<strong>⚠️ Your saved data couldn't be read</strong> and no backup was available, so WorkFocus started fresh.${corruptHint} If you have an exported JSON file, use <strong>Import JSON</strong> on the Admin tab to restore it.`
+    : `<strong>♻️ Restored from backup.</strong> Your latest saved data was unreadable, so the previous good snapshot was loaded instead — you may be missing the very last change.${corruptHint} Consider exporting a JSON backup from the Admin tab.`;
+  el.innerHTML = `<div class="rb-body">${body}</div><button type="button" class="rb-dismiss" aria-label="Dismiss" title="Dismiss">×</button>`;
+  el.hidden = false;
+  el.querySelector(".rb-dismiss").addEventListener("click", ()=>{
+    recoveryNotice = null;
+    renderRecoveryBanner();
+  });
+}
+
 function renderAll(){
+  renderRecoveryBanner();
   renderFocus();
   renderWorking();
   renderAdmin();
