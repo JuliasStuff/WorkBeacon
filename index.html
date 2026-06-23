@@ -109,34 +109,6 @@
     50%    { opacity:.55; transform:scale(.85); }
   }
 
-  /* Recovery banner — shown when load() had to rescue from backup */
-  .recovery-banner{
-    background:#fff3cd;
-    border:1px solid #f0c040;
-    color:#5a4500;
-    border-radius:12px;
-    padding:12px 14px;
-    margin-bottom:12px;
-    font-size:13px;
-    line-height:1.5;
-    box-shadow:var(--shadow);
-    display:flex; align-items:flex-start; gap:10px;
-  }
-  .recovery-banner.error{
-    background:#fde2e2;
-    border-color:#e98b8b;
-    color:#7a1f1f;
-  }
-  .recovery-banner .rb-body{ flex:1 1 auto; }
-  .recovery-banner strong{ font-weight:700; }
-  .recovery-banner .rb-dismiss{
-    flex:0 0 auto;
-    background:transparent; border:none; cursor:pointer;
-    font-size:18px; line-height:1; color:inherit; opacity:.6;
-    padding:2px 6px; border-radius:6px;
-  }
-  .recovery-banner .rb-dismiss:hover{ opacity:1; background:rgba(0,0,0,.06); }
-
   /* Tabs */
   nav.tabs{
     display:flex; gap:6px; flex-wrap:wrap;
@@ -620,13 +592,8 @@
     <div class="save-pill">
       <span id="sync-status-dot" class="sync-dot off" aria-hidden="true" title="Cloud sync"></span>
       <span id="sync-status">Sync: starting…</span>
-      <span class="save-pill-sep" aria-hidden="true">•</span>
-      <span id="save-dot" class="save-dot" aria-hidden="true"></span>
-      <span id="save-status">Saved</span>
     </div>
   </header>
-
-  <div id="recovery-banner" class="recovery-banner" hidden></div>
 
   <nav class="tabs" id="tabs">
     <button data-tab="focus" class="active">✨ Focus on this</button>
@@ -793,9 +760,6 @@ const FIREBASE_CONFIG = {
 };
 const MAX_FOCUS = 3;
 
-// Filled in by load() when something had to be rescued so the UI can show a banner.
-let recoveryNotice = null; // { kind: 'restored-from-backup' | 'reset-no-backup', corruptKey?: string }
-
 const KINDS = [
   { id:"active",            label:"Active",                  emoji:"⚡" },
   { id:"waiting-something", label:"Waiting on something",    emoji:"⏳" },
@@ -845,9 +809,9 @@ const DEFAULT_DATA = {
   recurrences: DEFAULT_RECURRENCES,
   tasks: [],         // { id, title, notes, stateId, tagIds[], timeSpentMs, createdAt, completedAt }
   focusOrder: [],    // task ids in focus, length <= MAX_FOCUS
-  running: null,     // { taskId, since (epoch ms) } or null
+  running: {},       // map of taskId -> startedAt (epoch ms). Multiple tasks may run simultaneously.
   paused: false,     // true when “Pause all work” is engaged
-  pausedFromTaskId: null  // task id that was running when paused, so Resume can restart it
+  pausedFromTaskIds: []  // task ids that were running when paused, so Resume can restart them
 };
 
 /* ---------- Storage ---------- */
@@ -867,14 +831,12 @@ function load(){
       if(backup){
         try{
           const recovered = mergeWithDefaults(JSON.parse(backup));
-          recoveryNotice = { kind:"restored-from-backup", corruptKey };
           console.warn("WorkFocus: recovered from backup. Bad data preserved under", corruptKey);
           return recovered;
         }catch(e2){
           console.error("WorkFocus: backup also failed to load", e2);
         }
       }
-      recoveryNotice = { kind:"reset-no-backup", corruptKey };
       return clone(DEFAULT_DATA);
     }
   }
@@ -883,7 +845,6 @@ function load(){
   if(backup){
     try{
       const recovered = mergeWithDefaults(JSON.parse(backup));
-      recoveryNotice = { kind:"restored-from-backup" };
       console.warn("WorkFocus: no primary data found, recovered from backup");
       return recovered;
     }catch(_){}
@@ -911,10 +872,34 @@ function mergeWithDefaults(parsed){
     recurrences: clone(DEFAULT_RECURRENCES),
     tasks:  (Array.isArray(parsed.tasks) ? parsed.tasks : []).map(t => normalizeTask(t, oldRecMap)),
     focusOrder: Array.isArray(parsed.focusOrder) ? parsed.focusOrder : [],
-    running: parsed.running || null,
+    running: normalizeRunningMap(parsed.running),
     paused: !!parsed.paused,
-    pausedFromTaskId: (typeof parsed.pausedFromTaskId === "string" && parsed.pausedFromTaskId) ? parsed.pausedFromTaskId : null
+    pausedFromTaskIds: normalizePausedIds(parsed)
   };
+}
+// Accept the old single-task running shape ({taskId, since}) and convert to the new map.
+function normalizeRunningMap(r){
+  if(!r || typeof r !== "object") return {};
+  // Legacy shape: { taskId: string, since: number }
+  if(typeof r.taskId === "string" && typeof r.since === "number" && Object.keys(r).length <= 3){
+    return { [r.taskId]: r.since };
+  }
+  // New shape: { [taskId]: number }
+  const out = {};
+  Object.keys(r).forEach(k => {
+    if(typeof r[k] === "number") out[k] = r[k];
+  });
+  return out;
+}
+function normalizePausedIds(parsed){
+  if(Array.isArray(parsed.pausedFromTaskIds)){
+    return parsed.pausedFromTaskIds.filter(id => typeof id === "string" && id);
+  }
+  // Legacy: single-string field
+  if(typeof parsed.pausedFromTaskId === "string" && parsed.pausedFromTaskId){
+    return [parsed.pausedFromTaskId];
+  }
+  return [];
 }
 const RECURRENCE_TYPE_TO_DEFAULT_ID = {
   weekday: "r-weekday",
@@ -1049,10 +1034,21 @@ function fmtTimerBig(ms){
 }
 function effectiveTime(task){
   let t = task.timeSpentMs || 0;
-  if(data.running && data.running.taskId === task.id){
-    t += nowMs() - data.running.since;
+  if(isTaskRunning(task.id)){
+    t += nowMs() - data.running[task.id];
   }
   return t;
+}
+
+/* ---------- Running-timer helpers (multi-task) ---------- */
+function isTaskRunning(taskId){
+  return !!(data.running && Object.prototype.hasOwnProperty.call(data.running, taskId));
+}
+function anyTaskRunning(){
+  return data.running && Object.keys(data.running).length > 0;
+}
+function runningTaskIds(){
+  return data.running ? Object.keys(data.running) : [];
 }
 
 /* ---------- Lookups ---------- */
@@ -1206,7 +1202,7 @@ function applyRecurrenceIfDue(){
 let tickHandle = null;
 function startTickIfRunning(){
   stopTick();
-  if(!data.running) return;
+  if(!anyTaskRunning()) return;
   tickHandle = setInterval(()=>{
     // Cheap re-render of just the live time bits
     updateLiveTimes();
@@ -1216,53 +1212,61 @@ function stopTick(){
   if(tickHandle){ clearInterval(tickHandle); tickHandle = null; }
 }
 function startTimer(taskId){
-  if(data.running && data.running.taskId === taskId) return;
-  if(data.running){
-    stopTimer({ skipSave: true });
-  }
-  // Starting a timer manually clears any “paused” state.
+  if(isTaskRunning(taskId)) return;
+  // Starting a timer manually clears any “paused” state — the user is actively working.
   data.paused = false;
-  data.pausedFromTaskId = null;
-  data.running = { taskId, since: nowMs() };
+  data.pausedFromTaskIds = [];
+  data.running[taskId] = nowMs();
   save();
   startTickIfRunning();
   renderAll();
 }
-function stopTimer(opts = {}){
-  if(!data.running) return;
-  const elapsed = nowMs() - data.running.since;
-  const task = getTask(data.running.taskId);
+function stopTimer(taskId, opts = {}){
+  if(!taskId || !isTaskRunning(taskId)) return;
+  const elapsed = nowMs() - data.running[taskId];
+  const task = getTask(taskId);
   if(task){
     task.timeSpentMs = (task.timeSpentMs || 0) + elapsed;
   }
-  data.running = null;
-  stopTick();
+  delete data.running[taskId];
+  if(!anyTaskRunning()) stopTick();
   // Manual stops (not coming from pauseAll) also clear pause state.
   if(!opts.keepPaused){
     data.paused = false;
-    data.pausedFromTaskId = null;
+    data.pausedFromTaskIds = [];
   }
   if(!opts.skipSave) save();
   if(!opts.skipRender) renderAll();
 }
+function stopAllTimers(opts = {}){
+  const ids = runningTaskIds();
+  if(ids.length === 0) return [];
+  ids.forEach(id => stopTimer(id, { skipSave: true, skipRender: true, keepPaused: opts.keepPaused }));
+  if(!opts.skipSave) save();
+  if(!opts.skipRender) renderAll();
+  return ids;
+}
 
 function pauseAll(){
-  // Capture which task is currently running so Resume can restart it.
-  const wasRunningId = data.running ? data.running.taskId : null;
-  if(data.running){
-    stopTimer({ skipSave: true, skipRender: true, keepPaused: true });
+  // Capture which tasks are currently running so Resume can restart them.
+  const wasRunning = runningTaskIds();
+  if(wasRunning.length){
+    stopAllTimers({ skipSave: true, skipRender: true, keepPaused: true });
   }
   data.paused = true;
-  data.pausedFromTaskId = wasRunningId;
+  data.pausedFromTaskIds = wasRunning;
   save();
   renderAll();
 }
 function resumeAll(){
-  const resumeId = data.pausedFromTaskId;
+  const resumeIds = (data.pausedFromTaskIds || []).filter(id => !!getTask(id));
   data.paused = false;
-  data.pausedFromTaskId = null;
-  if(resumeId && getTask(resumeId)){
-    startTimer(resumeId); // startTimer saves + renders
+  data.pausedFromTaskIds = [];
+  if(resumeIds.length){
+    resumeIds.forEach(id => { data.running[id] = nowMs(); });
+    save();
+    startTickIfRunning();
+    renderAll();
   }else{
     save();
     renderAll();
@@ -1278,14 +1282,16 @@ function addToFocus(taskId){
     return false;
   }
   data.focusOrder.push(taskId);
-  save();
-  renderAll();
+  // Starring a task is an explicit "I want to work on this now" — auto-start its
+  // timer. startTimer() stops any previously running task (preserving its time),
+  // clears any global pause state, and handles save() + renderAll().
+  startTimer(taskId);
   return true;
 }
 function removeFromFocus(taskId){
   data.focusOrder = data.focusOrder.filter(id => id !== taskId);
-  if(data.running && data.running.taskId === taskId){
-    stopTimer({ skipRender: true });
+  if(isTaskRunning(taskId)){
+    stopTimer(taskId, { skipRender: true });
   }
   save();
   renderAll();
@@ -1352,7 +1358,7 @@ function renderPauseButton(){
   }
 }
 function renderFocusSlot(task, idx){
-  const running = data.running && data.running.taskId === task.id;
+  const running = isTaskRunning(task.id);
   const tags = (task.tagIds || []).map(tid => {
     const t = getTag(tid);
     if(!t) return "";
@@ -1410,16 +1416,18 @@ function renderEmptyFocusSlot(idx){
   `;
 }
 function updateLiveTimes(){
-  // Update the big timer on the running focus slot and the per-row time in Working On
-  if(!data.running) return;
-  const task = getTask(data.running.taskId);
-  if(!task) return;
-  const ms = effectiveTime(task);
-  document.querySelectorAll(`.focus-slot[data-task="${task.id}"] [data-role="timer"]`).forEach(el=>{
-    el.textContent = fmtTimerBig(ms);
-  });
-  document.querySelectorAll(`.task-row[data-task="${task.id}"] [data-role="row-time"]`).forEach(el=>{
-    el.textContent = fmtDuration(ms);
+  // Update the big timer on running focus slots and the per-row time in Working On.
+  // Multiple tasks may be running simultaneously.
+  runningTaskIds().forEach(tid => {
+    const task = getTask(tid);
+    if(!task) return;
+    const ms = effectiveTime(task);
+    document.querySelectorAll(`.focus-slot[data-task="${task.id}"] [data-role="timer"]`).forEach(el=>{
+      el.textContent = fmtTimerBig(ms);
+    });
+    document.querySelectorAll(`.task-row[data-task="${task.id}"] [data-role="row-time"]`).forEach(el=>{
+      el.textContent = fmtDuration(ms);
+    });
   });
 }
 
@@ -1441,7 +1449,7 @@ document.getElementById("focus-grid").addEventListener("click", e=>{
   if(!taskId) return;
   const act = btn.dataset.act;
   if(act === "start"){ startTimer(taskId); }
-  else if(act === "stop"){ stopTimer(); }
+  else if(act === "stop"){ stopTimer(taskId); }
   else if(act === "done"){ markDone(taskId); }
   else if(act === "unfocus"){ removeFromFocus(taskId); }
   else if(act === "up"){ moveFocus(taskId, -1); }
@@ -1506,7 +1514,7 @@ function renderWorking(){
 }
 function renderTaskRow(task){
   const focused = isFocused(task.id);
-  const running = data.running && data.running.taskId === task.id;
+  const running = isTaskRunning(task.id);
   const k = kindOfTask(task);
   const tagChips = (task.tagIds || []).map(tid => {
     const tg = getTag(tid);
@@ -1525,9 +1533,6 @@ function renderTaskRow(task){
     : "";
   const followChip = followUpChipHtml(task);
   const ms = effectiveTime(task);
-  const stateOptions = data.states.map(s =>
-    `<option value="${s.id}" ${s.id === task.stateId ? "selected" : ""}>${escapeHtml(s.name)}</option>`
-  ).join("");
   return `
     <div class="task-row ${focused ? "focused" : ""} kind-${k}" data-task="${task.id}" draggable="true">
       <button class="star-btn ${focused ? "on" : ""}" data-act="toggle-focus" title="${focused ? "Remove from Focus" : "Add to Focus"}">${focused ? "★" : "☆"}</button>
@@ -1542,7 +1547,6 @@ function renderTaskRow(task){
         </div>
       </div>
       <div class="task-actions">
-        <select data-act="set-state" title="Move to state">${stateOptions}</select>
         <button class="icon" data-act="delete" title="Delete">🗑️</button>
       </div>
     </div>
@@ -1565,34 +1569,6 @@ document.getElementById("working-groups").addEventListener("click", e=>{
     deleteTask(taskId);
   }
 });
-document.getElementById("working-groups").addEventListener("change", e=>{
-  const sel = e.target.closest("select[data-act='set-state']");
-  if(!sel) return;
-  const row = sel.closest(".task-row");
-  if(!row) return;
-  const task = getTask(row.dataset.task);
-  if(!task) return;
-  const wasKind = kindOfTask(task);
-  task.stateId = sel.value;
-  const nowKind = kindOfTask(task);
-  if(nowKind === "done"){
-    task.completedAt = nowMs();
-    // Auto-unfocus when marked done
-    data.focusOrder = data.focusOrder.filter(id => id !== task.id);
-    if(data.running && data.running.taskId === task.id){
-      stopTimer({ skipRender: true });
-    }
-    if(task.recurrence && wasKind !== "done"){
-      scheduleRecurrenceReset(task);
-    }
-  }else if(wasKind === "done"){
-    // Coming back out of done: drop any pending reset.
-    task.nextResetAt = null;
-    task.completedAt = null;
-  }
-  save();
-  renderAll();
-});
 
 /* ---------- Drag & drop between kind groups ---------- */
 let dragTaskId = null;
@@ -1607,8 +1583,8 @@ function moveTaskToKind(taskId, kindId){
   if(kindId === "done"){
     task.completedAt = nowMs();
     data.focusOrder = data.focusOrder.filter(id => id !== task.id);
-    if(data.running && data.running.taskId === task.id){
-      stopTimer({ skipRender: true });
+    if(isTaskRunning(task.id)){
+      stopTimer(task.id, { skipRender: true });
     }
     if(task.recurrence && wasKind !== "done"){
       scheduleRecurrenceReset(task);
@@ -1692,8 +1668,8 @@ function deleteTask(taskId){
   const task = getTask(taskId);
   if(!task) return;
   if(!confirm(`Delete “${task.title}”? This can’t be undone.`)) return;
-  if(data.running && data.running.taskId === taskId){
-    stopTimer({ skipSave: true, skipRender: true });
+  if(isTaskRunning(taskId)){
+    stopTimer(taskId, { skipSave: true, skipRender: true });
   }
   data.tasks = data.tasks.filter(t => t.id !== taskId);
   data.focusOrder = data.focusOrder.filter(id => id !== taskId);
@@ -1708,8 +1684,8 @@ function markDone(taskId){
     alert("No state with kind 'Done' exists. Add one in Admin.");
     return;
   }
-  if(data.running && data.running.taskId === taskId){
-    stopTimer({ skipSave: true, skipRender: true });
+  if(isTaskRunning(taskId)){
+    stopTimer(taskId, { skipSave: true, skipRender: true });
   }
   task.stateId = done.id;
   task.completedAt = nowMs();
@@ -1905,8 +1881,8 @@ document.getElementById("task-modal-save").addEventListener("click", ()=>{
   if(nowKind === "done" && wasKind !== "done"){
     task.completedAt = nowMs();
     data.focusOrder = data.focusOrder.filter(id => id !== task.id);
-    if(data.running && data.running.taskId === task.id){
-      stopTimer({ skipSave: true, skipRender: true });
+    if(isTaskRunning(task.id)){
+      stopTimer(task.id, { skipSave: true, skipRender: true });
     }
     if(task.recurrence){
       scheduleRecurrenceReset(task);
@@ -1933,8 +1909,8 @@ document.getElementById("task-modal-reset-time").addEventListener("click", ()=>{
   const task = getTask(editingTaskId);
   if(!task) return;
   if(!confirm("Reset time spent to 0?")) return;
-  if(data.running && data.running.taskId === task.id){
-    stopTimer({ skipSave: true, skipRender: true });
+  if(isTaskRunning(task.id)){
+    stopTimer(task.id, { skipSave: true, skipRender: true });
   }
   task.timeSpentMs = 0;
   save();
@@ -2123,33 +2099,7 @@ document.getElementById("btn-wipe").addEventListener("click", ()=>{
 });
 
 /* ---------- Render all ---------- */
-function renderRecoveryBanner(){
-  const el = document.getElementById("recovery-banner");
-  if(!el) return;
-  if(!recoveryNotice){
-    el.hidden = true;
-    el.innerHTML = "";
-    el.classList.remove("error");
-    return;
-  }
-  const isReset = recoveryNotice.kind === "reset-no-backup";
-  el.classList.toggle("error", isReset);
-  const corruptHint = recoveryNotice.corruptKey
-    ? ` The unreadable copy was kept in your browser under <code>${escapeHtml(recoveryNotice.corruptKey)}</code> for safekeeping.`
-    : "";
-  const body = isReset
-    ? `<strong>⚠️ Your saved data couldn't be read</strong> and no backup was available, so WorkFocus started fresh.${corruptHint} If you have an exported JSON file, use <strong>Import JSON</strong> on the Admin tab to restore it.`
-    : `<strong>♻️ Restored from backup.</strong> Your latest saved data was unreadable, so the previous good snapshot was loaded instead — you may be missing the very last change.${corruptHint} Consider exporting a JSON backup from the Admin tab.`;
-  el.innerHTML = `<div class="rb-body">${body}</div><button type="button" class="rb-dismiss" aria-label="Dismiss" title="Dismiss">×</button>`;
-  el.hidden = false;
-  el.querySelector(".rb-dismiss").addEventListener("click", ()=>{
-    recoveryNotice = null;
-    renderRecoveryBanner();
-  });
-}
-
 function renderAll(){
-  renderRecoveryBanner();
   renderFocus();
   renderWorking();
   renderAdmin();
