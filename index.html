@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>WorkFocus</title>
+<title>WorkBeacon</title>
 <meta name="theme-color" content="#e26ba8" />
 <meta name="description" content="A happy little focus tracker — pick 1-3 things to focus on, run a timer, and keep the rest organized." />
 
@@ -15,9 +15,9 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="WorkFocus" />
+<meta name="apple-mobile-web-app-title" content="WorkBeacon" />
 <meta name="mobile-web-app-capable" content="yes" />
-<meta name="application-name" content="WorkFocus" />
+<meta name="application-name" content="WorkBeacon" />
 
 <style>
   :root{
@@ -789,7 +789,7 @@
 
 <div class="app">
   <header class="topbar">
-    <div class="crest" aria-label="WorkFocus logo">
+    <div class="crest" aria-label="WorkBeacon logo">
       <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <!-- Stopwatch: stem button, top crowns, body, hands, center dot -->
         <rect x="27" y="6" width="10" height="6" rx="2" fill="#ffffff"/>
@@ -802,7 +802,7 @@
       </svg>
     </div>
     <div>
-      <h1>WorkFocus</h1>
+      <h1>WorkBeacon</h1>
     </div>
     <div class="save-pill">
       <span id="sync-status-dot" class="sync-dot off" aria-hidden="true" title="Cloud sync"></span>
@@ -1010,18 +1010,20 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/fireba
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 /* =========================================================
-   WorkFocus — single-file PWA
+   WorkBeacon — single-file PWA
    - localStorage data
    - 3 tabs: Focus / Working on now / Admin
    - One running timer at a time, ticking every second
    ========================================================= */
 
+// NOTE: storage keys and Firebase collection intentionally keep the legacy
+// "workfocus" string so existing local/cloud data survives the rename.
 const STORAGE_KEY        = "workfocus-v1";
 const BACKUP_KEY         = "workfocus-v1-backup";       // last good snapshot, written before each save
 const CORRUPT_KEY_PREFIX = "workfocus-v1-corrupt-";      // suffixed with timestamp on rescue
 const CLIENT_ID_STORAGE_KEY = "workfocus-client-id";
 const FIREBASE_COLLECTION = "workfocus";
-const WORKFOCUS_DOC_ID    = "julia";
+const WORKBEACON_DOC_ID   = "julia";
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyAjiXTzatcx_Mr817qhZvB8YPa9AUN8CEI",
   authDomain: "work-e049f.firebaseapp.com",
@@ -1137,7 +1139,7 @@ function load(){
     try{
       return mergeWithDefaults(JSON.parse(raw));
     }catch(e){
-      console.error("WorkFocus: primary data failed to load — attempting backup", e);
+      console.error("WorkBeacon: primary data failed to load — attempting backup", e);
       // Quarantine the bad blob so the user can recover it manually if needed.
       const corruptKey = CORRUPT_KEY_PREFIX + Date.now();
       try{ localStorage.setItem(corruptKey, raw); }catch(_){}
@@ -1145,10 +1147,10 @@ function load(){
       if(backup){
         try{
           const recovered = mergeWithDefaults(JSON.parse(backup));
-          console.warn("WorkFocus: recovered from backup. Bad data preserved under", corruptKey);
+          console.warn("WorkBeacon: recovered from backup. Bad data preserved under", corruptKey);
           return recovered;
         }catch(e2){
-          console.error("WorkFocus: backup also failed to load", e2);
+          console.error("WorkBeacon: backup also failed to load", e2);
         }
       }
       return clone(DEFAULT_DATA);
@@ -1159,7 +1161,7 @@ function load(){
   if(backup){
     try{
       const recovered = mergeWithDefaults(JSON.parse(backup));
-      console.warn("WorkFocus: no primary data found, recovered from backup");
+      console.warn("WorkBeacon: no primary data found, recovered from backup");
       return recovered;
     }catch(_){}
   }
@@ -3292,7 +3294,7 @@ document.getElementById("btn-export").addEventListener("click", ()=>{
   const a = document.createElement("a");
   const stamp = new Date().toISOString().slice(0,10);
   a.href = url;
-  a.download = `workfocus-${stamp}.json`;
+  a.download = `workbeacon-${stamp}.json`;
   a.click();
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
 });
@@ -3383,7 +3385,7 @@ async function connectCloudSync(){
   try{
     firebaseApp = initializeApp(FIREBASE_CONFIG);
     firebaseDb  = getFirestore(firebaseApp);
-    trackerRef  = doc(firebaseDb, FIREBASE_COLLECTION, WORKFOCUS_DOC_ID);
+    trackerRef  = doc(firebaseDb, FIREBASE_COLLECTION, WORKBEACON_DOC_ID);
 
     // Initial fetch — adopt remote if it exists, otherwise seed it with local.
     const snap = await getDoc(trackerRef);
