@@ -278,6 +278,23 @@
     font-size:13px; line-height:1.45; color:var(--ink);
     white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere;
     max-height:160px; overflow:auto;
+    cursor:text;
+  }
+  .focus-slot .focus-notes:hover{ border-color:var(--accent); }
+  .focus-slot .focus-notes.empty{
+    color:var(--ink-soft); font-style:italic;
+    border-style:dashed; background:transparent;
+  }
+  .focus-slot .focus-notes-edit{
+    width:100%;
+    background:#fff; border:1px solid var(--accent);
+    border-radius:10px; padding:8px 10px;
+    font-size:13px; line-height:1.45; color:var(--ink);
+    font-family:inherit;
+    white-space:pre-wrap; word-wrap:break-word;
+    resize:vertical; min-height:80px;
+    outline:none;
+    box-shadow:0 0 0 3px var(--accent-soft);
   }
   .focus-slot .timer-display{
     font-size:32px; font-weight:800;
@@ -1840,7 +1857,9 @@ function renderFocusSlot(task, idx){
   const followChip = followUpChipHtml(task);
   const t = effectiveTime(task);
   const notes = (task.notes || "").trim();
-  const notesHtml = notes ? `<div class="focus-notes">${linkifyText(notes)}</div>` : "";
+  const notesHtml = notes
+    ? `<div class="focus-notes" data-act="edit-notes" title="Click to edit notes">${linkifyText(notes)}</div>`
+    : `<div class="focus-notes empty" data-act="edit-notes" title="Click to add notes">+ Add notes…</div>`;
   const projChip = projectChipHtml(task);
   const project = task.projectId ? getProject(task.projectId) : null;
   const projStyle = project ? ` style="--project-color:${escapeHtml(project.color)};"` : "";
@@ -1890,6 +1909,48 @@ function renderEmptyFocusSlot(idx){
     </div>
   `;
 }
+// Swap the read-only focus-notes div for an inline textarea. Saves on blur
+// (and on Ctrl/Cmd+Enter); Escape cancels without saving.
+function startEditingFocusNotes(slot, taskId){
+  const task = getTask(taskId);
+  if(!task) return;
+  const wrap = slot.querySelector('.focus-notes[data-act="edit-notes"]');
+  if(!wrap) return;
+  const original = task.notes || "";
+  const ta = document.createElement("textarea");
+  ta.className = "focus-notes-edit";
+  ta.value = original;
+  ta.placeholder = "Add notes…";
+  ta.rows = Math.min(8, Math.max(3, original.split("\n").length + 1));
+  wrap.replaceWith(ta);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+
+  let finished = false;
+  const commit = (saveChanges) => {
+    if(finished) return;
+    finished = true;
+    if(saveChanges){
+      const next = ta.value;
+      const cur = getTask(taskId);
+      if(cur && (cur.notes || "") !== next){
+        cur.notes = next;
+        save();
+      }
+    }
+    renderFocus();
+  };
+  ta.addEventListener("blur", () => commit(true));
+  ta.addEventListener("keydown", (ev) => {
+    if(ev.key === "Escape"){
+      ev.preventDefault();
+      commit(false);
+    }else if(ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)){
+      ev.preventDefault();
+      ta.blur();
+    }
+  });
+}
 function updateLiveTimes(){
   // Update the big timer on running focus slots and the per-row time in Working On.
   // Multiple tasks may be running simultaneously.
@@ -1935,6 +1996,11 @@ document.getElementById("focus-grid").addEventListener("click", e=>{
   else if(act === "up"){ moveFocus(taskId, -1); }
   else if(act === "down"){ moveFocus(taskId, 1); }
   else if(act === "edit"){ openTaskModal(taskId); }
+  else if(act === "edit-notes"){
+    // Let link clicks pass through to the browser instead of switching to edit mode.
+    if(e.target.closest("a")) return;
+    startEditingFocusNotes(slot, taskId);
+  }
 });
 document.getElementById("focus-grid").addEventListener("change", e=>{
   const cb = e.target.closest("input[data-act='toggle-sub']");
